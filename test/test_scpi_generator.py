@@ -10,6 +10,9 @@ def main() -> None:
         "Muéstrame las medidas actuales",
         "Dime los parámetros actuales",
         "¿Cuál es el perfil actual?",
+        "Necesito la configuración actual de la señal",
+        "Quiero ver las mediciones actuales",
+        "Identifica el equipo",
     ]
 
     for query in queries:
