@@ -1,4 +1,4 @@
-from llm.ollama_client import ask_llm
+from llm.clients.ollama_client import ask_llm
 
 
 SCPI_SYSTEM_PROMPT = """

@@ -1,4 +1,4 @@
-from llm.mcp_client import send_scpi_command
+from llm.clients.mcp_client import send_scpi_command
 
 
 def main() -> None:

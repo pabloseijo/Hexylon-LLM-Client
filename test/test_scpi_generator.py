@@ -1,4 +1,4 @@
-from llm.scpi_generator import generate_scpi
+from llm.core.scpi_generator import generate_scpi
 
 
 def main() -> None:
