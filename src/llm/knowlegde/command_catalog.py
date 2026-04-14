@@ -1048,9 +1048,9 @@ COMMAND_CATALOG: dict[str, dict[str, Any]] = {
 
 def get_command_info(command_name: str) -> dict[str, Any] | None:
     """
-    Return the normalized knowledge entry for a command name.
+    Devuelve la entrada de conocimiento normalizada para un nombre de comando.
 
-    The lookup is case-insensitive and ignores a trailing '?' if present.
+    La búsqueda no es sensible a mayúsculas e ignora un '?' final si está presente.
     """
     normalized = command_name.strip().upper().rstrip("?")
     return COMMAND_CATALOG.get(normalized)
@@ -1058,14 +1058,14 @@ def get_command_info(command_name: str) -> dict[str, Any] | None:
 
 def command_exists(command_name: str) -> bool:
     """
-    Return True if the command exists in the catalog.
+    Devuelve True si el comando existe en el catálogo.
     """
     return get_command_info(command_name) is not None
 
 
 def get_commands_by_category(category: str) -> dict[str, dict[str, Any]]:
     """
-    Return all commands belonging to a given category.
+    Devuelve todos los comandos pertenecientes a una categoría dada.
     """
     normalized = category.strip().lower()
     return {
@@ -1077,10 +1077,9 @@ def get_commands_by_category(category: str) -> dict[str, dict[str, Any]]:
 
 def get_command_context(command_names: list[str]) -> str:
     """
-    Build a compact textual context block for a list of command names.
+    Construye un bloque de contexto textual compacto para una lista de nombres de comandos.
 
-    This helper is useful for prompt injection when only a small subset
-    of commands is relevant to the current user request.
+    Este auxiliar es útil para inyección de prompts cuando solo un pequeño subconjunto de comandos es relevante para la solicitud actual del usuario.
     """
     context_blocks: list[str] = []
 
