@@ -2,17 +2,23 @@
 Constructor de contexto para la capa de conocimiento de Hexylon.
 
 Este módulo orquesta la selección y composición del contexto documental que se
-inyecta en el prompt del LLM. Combina:
+inyecta en el prompt del LLM.
 
-- referencia base compacta
-- contexto por comando
-- contexto por topic
+Ahora soporta dos modos distintos:
 
-Su objetivo es entregar al generador SCPI únicamente el contexto relevante
-para la petición actual, reduciendo ruido y consumo de tokens.
+- mode="command"
+  Construye contexto orientado a generación de comandos SCPI.
+  En este modo se permite incluir la referencia compacta de generación.
+
+- mode="knowledge"
+  Construye contexto orientado a explicación documental.
+  En este modo no debe reutilizarse la referencia de generación SCPI, ya que
+  contiene instrucciones incompatibles con respuestas explicativas.
 """
 
 from __future__ import annotations
+
+from typing import Literal
 
 from llm.knowledge.api_reference import API_REFERENCE
 from llm.knowledge.command_catalog import get_command_context
@@ -20,10 +26,48 @@ from llm.knowledge.command_selector import select_candidate_commands
 from llm.knowledge.topic_catalog import get_topic_context
 from llm.knowledge.topic_selector import select_candidate_topics
 
+KnowledgeMode = Literal["command", "knowledge"]
+
+
+# Referencia base específica para respuestas documentales.
+# No incluye instrucciones de generación de SCPI.
+KNOWLEDGE_BASE_REFERENCE = """
+HEXYLON DOCUMENTED KNOWLEDGE REFERENCE
+
+Use this context only to explain documented behavior of Hexylon commands and topics.
+
+Allowed uses:
+- explain what a command does
+- explain command syntax
+- explain what a command returns
+- explain restrictions or requirements
+- explain related functional areas of the API
+
+Important rules:
+- Do not invent undocumented behavior.
+- Do not invent undocumented commands.
+- Do not answer with only the SCPI command unless the user explicitly asks to generate or execute one.
+- If documentation is insufficient, state that clearly.
+""".strip()
+
+
+def _get_base_reference(mode: KnowledgeMode) -> str:
+    """
+    Devuelve la referencia base adecuada según el modo de construcción.
+
+    - command: usa la referencia compacta de generación SCPI
+    - knowledge: usa una referencia documental neutra
+    """
+    if mode == "command":
+        return API_REFERENCE.strip()
+
+    return KNOWLEDGE_BASE_REFERENCE
+
 
 def build_knowledge_context(
     user_input: str,
     *,
+    mode: KnowledgeMode = "command",
     include_reference: bool = True,
     max_commands: int = 5,
     max_topics: int = 3,
@@ -32,7 +76,7 @@ def build_knowledge_context(
     Construye el contexto documental final para una petición del usuario.
 
     El contexto puede incluir:
-    - referencia base compacta de la API
+    - referencia base adaptada al modo
     - comandos candidatos detectados heurísticamente
     - topics candidatos detectados heurísticamente
 
@@ -40,8 +84,12 @@ def build_knowledge_context(
     ----------
     user_input:
         Petición original del usuario en lenguaje natural.
+    mode:
+        Modo de construcción del contexto:
+        - "command": contexto orientado a generación de SCPI
+        - "knowledge": contexto orientado a explicación documental
     include_reference:
-        Si es True, incluye siempre API_REFERENCE al inicio.
+        Si es True, incluye la referencia base correspondiente al modo.
     max_commands:
         Número máximo de comandos candidatos a incluir.
     max_topics:
@@ -55,7 +103,11 @@ def build_knowledge_context(
     blocks: list[str] = []
 
     if include_reference:
-        blocks.append("BASE API REFERENCE:\n" + API_REFERENCE.strip())
+        base_reference = _get_base_reference(mode)
+        if mode == "command":
+            blocks.append("BASE API REFERENCE:\n" + base_reference)
+        else:
+            blocks.append("BASE KNOWLEDGE REFERENCE:\n" + base_reference)
 
     command_names = select_candidate_commands(user_input, max_commands=max_commands)
     command_context = get_command_context(command_names)
@@ -73,6 +125,7 @@ def build_knowledge_context(
 def build_knowledge_payload(
     user_input: str,
     *,
+    mode: KnowledgeMode = "command",
     include_reference: bool = True,
     max_commands: int = 5,
     max_topics: int = 3,
@@ -84,13 +137,14 @@ def build_knowledge_payload(
     - depuración
     - trazabilidad
     - inspección del routing documental
-    - futuros ajustes del pipeline
+    - ajustes futuros del pipeline
 
     Returns
     -------
     dict[str, object]
         Diccionario con:
         - user_input
+        - mode
         - selected_commands
         - selected_topics
         - context
@@ -105,6 +159,7 @@ def build_knowledge_payload(
     )
     context = build_knowledge_context(
         user_input,
+        mode=mode,
         include_reference=include_reference,
         max_commands=max_commands,
         max_topics=max_topics,
@@ -112,6 +167,7 @@ def build_knowledge_payload(
 
     return {
         "user_input": user_input,
+        "mode": mode,
         "selected_commands": selected_commands,
         "selected_topics": selected_topics,
         "context": context,
@@ -127,10 +183,8 @@ def has_relevant_knowledge(
     """
     Indica si la petición del usuario activa algún comando o topic relevante.
 
-    Esta función puede ser útil si más adelante quieres decidir dinámicamente:
-    - si enriquecer el prompt
-    - si usar solo la referencia base
-    - si activar lógica adicional de fallback
+    Esta función puede ser útil para decidir dinámicamente si compensa
+    enriquecer el prompt con contexto adicional.
     """
     selected_commands = select_candidate_commands(
         user_input,
