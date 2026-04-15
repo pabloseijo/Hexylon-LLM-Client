@@ -4,8 +4,8 @@ from typing import Any
 import requests
 
 
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434/api/chat")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3.5:4b")
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://10.115.0.71:11434/api/chat")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3.5:9b")
 REQUEST_TIMEOUT = float(os.getenv("OLLAMA_TIMEOUT", "120"))
 
 

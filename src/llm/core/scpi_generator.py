@@ -5,6 +5,13 @@ from typing import Literal
 from llm.clients.ollama_client import ask_llm
 from llm.knowledge.command_catalog import command_exists
 from llm.knowledge.context_builder import build_knowledge_payload
+from llm.knowledge.query_classifier import classify
+from llm.knowledge.response_formatter import (
+    format_command_answer,
+    format_metric_answer,
+    format_topic_answer,
+    format_unknown_answer,
+)
 
 Intent = Literal["command", "knowledge"]
 
@@ -277,8 +284,43 @@ def generate_scpi(user_input: str) -> str:
 
 def answer_with_knowledge(user_input: str) -> str:
     """
-    Responde una pregunta documental o explicativa utilizando la capa knowledge.
+    Responde una pregunta documental enrutando hacia la respuesta más
+    determinista posible según el tipo de consulta clasificado.
+
+    Orden de autoridad:
+    1. exact_command      → respuesta determinista del catálogo (sin LLM)
+    2. metric_definition  → respuesta determinista del catálogo (sin LLM)
+    3. unsupported        → respuesta fija fuera de dominio (sin LLM)
+    4. topic              → semideterminista: catálogo, LLM solo si insuficiente
+    5. how_to / broad_knowledge → LLM restringido con contexto rico
     """
+    result = classify(user_input)
+
+    # --- Nivel 1: totalmente determinista ---
+
+    if result.query_type == "exact_command" and result.matched_command:
+        return format_command_answer(result.matched_command)
+
+    if result.query_type == "metric_definition" and result.matched_command:
+        return format_metric_answer(result.matched_command)
+
+    if result.query_type == "unsupported":
+        return format_unknown_answer(user_input)
+
+    # --- Nivel 2: semideterminista (topic con contenido del catálogo) ---
+
+    if result.query_type == "topic":
+        from llm.knowledge.topic_selector import select_candidate_topics
+        topic_names = select_candidate_topics(user_input, max_topics=3)
+        if topic_names:
+            topic_response = format_topic_answer(topic_names)
+            if len(topic_response) > 80:
+                return topic_response
+
+    # --- Nivel 3: generación restringida como fallback ---
+    # Cubre: how_to, broad_knowledge, topic sin contenido suficiente,
+    # y exact_command/metric sin matched_command (clasificación débil).
+
     response = ask_llm(build_knowledge_messages(user_input))
     return response.strip()
 
