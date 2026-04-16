@@ -54,12 +54,8 @@ QueryType = Literal[
     "unsupported",
 ]
 
-# Umbral mínimo de keywords coincidentes para considerar un único candidato
-# como "alta confianza" en la detección heurística.
 HIGH_CONFIDENCE_MATCH_THRESHOLD = 2
 
-# Nombres de comandos que corresponden a métricas de señal puras.
-# Se usan para clasificar preguntas del tipo "qué es el MER".
 METRIC_COMMANDS: frozenset[str] = frozenset({
     "POW", "CN", "VA", "MER", "CBER", "VBER", "BCHBER",
     "LKM", "PER", "SER", "HUM", "CSO",
@@ -70,84 +66,105 @@ METRIC_COMMANDS: frozenset[str] = frozenset({
     "ECHOES",
 })
 
-# Marcadores lexicales que indican pregunta "cómo hacer algo".
+# Marcadores how_to — evaluados ANTES de la heurística de comando único
 HOW_TO_MARKERS: tuple[str, ...] = (
-    "cómo",
-    "como",
-    "de qué forma",
-    "de que forma",
-    "de qué manera",
-    "de que manera",
-    "cómo puedo",
+    "como cambio",
+    "como selecciono",
+    "como configuro",
+    "como anado",
+    "como subo",
+    "como bajo",
+    "como activo",
+    "como desactivo",
+    "como uso",
+    "como utilizo",
     "como puedo",
-    "cómo se",
     "como se",
+    "cómo cambio",
+    "cómo selecciono",
+    "cómo configuro",
+    "cómo añado",
+    "cómo subo",
+    "cómo bajo",
+    "cómo activo",
+    "cómo desactivo",
+    "cómo uso",
+    "cómo utilizo",
+    "cómo puedo",
+    "cómo se",
+    "de que forma",
+    "de qué forma",
+    "de que manera",
+    "de qué manera",
     "pasos para",
     "procedimiento",
     "proceso para",
 )
 
-# Marcadores lexicales que indican pregunta sobre área funcional amplia.
+# Marcadores topic — evaluados ANTES de la heurística de comando único
 TOPIC_MARKERS: tuple[str, ...] = (
-    "qué comandos",
-    "que comandos",
+    "que comandos hay",
+    "qué comandos hay",
+    "que comandos existen",
+    "qué comandos existen",
     "comandos para",
     "comandos de",
+    "que opciones hay",
+    "qué opciones hay",
     "opciones de",
     "opciones para",
-    "qué opciones",
-    "que opciones",
-    "qué hay para",
     "que hay para",
-    "área de",
+    "qué hay para",
     "area de",
+    "área de",
     "funcionalidades",
     "capacidades",
-    "qué puedo hacer con",
     "que puedo hacer con",
+    "qué puedo hacer con",
 )
 
-# Marcadores de consulta general sobre la API o el sistema.
 BROAD_KNOWLEDGE_MARKERS: tuple[str, ...] = (
-    "qué puedes hacer",
     "que puedes hacer",
-    "qué comandos existen",
-    "que comandos existen",
-    "cómo funciona",
+    "qué puedes hacer",
     "como funciona",
-    "para qué sirve el hexylon",
+    "cómo funciona",
     "para que sirve el hexylon",
-    "qué es hexylon",
+    "para qué sirve el hexylon",
     "que es hexylon",
-    "qué es el hexylon",
+    "qué es hexylon",
     "que es el hexylon",
+    "qué es el hexylon",
     "ayuda",
     "help",
-    "quién eres",
     "quien eres",
-    "qué eres",
+    "quién eres",
     "que eres",
-    "tu función",
+    "qué eres",
     "tu funcion",
+    "tu función",
     "resumen de la api",
     "overview",
 )
 
-# Patrones que sugieren que el usuario está fuera del dominio.
 OUT_OF_DOMAIN_MARKERS: tuple[str, ...] = (
     "receta",
-    "tiempo",
+    "tiempo hace",
     "clima",
     "deporte",
-    "película",
     "pelicula",
-    "música",
+    "película",
     "musica",
-    "política",
+    "música",
     "politica",
+    "política",
     "historia de",
-    "cuéntame un chiste",
-    "cuentame un chiste",
+    "chiste",
+    "mundial",
+    "futbol",
+    "fútbol",
+    "baloncesto",
+    "tenis",
+    "cocina",
 )
 
 
@@ -163,10 +180,10 @@ class ClassificationResult:
     matched_command:
         Nombre del comando identificado, si aplica. None en caso contrario.
     confidence:
-        Indicador de confianza: 'high' cuando se detectó por nombre explícito
-        o match heurístico fuerte; 'low' en caso contrario.
+        'high' cuando se detectó por nombre explícito o match fuerte;
+        'low' en caso contrario.
     reason:
-        Descripción interna del motivo de clasificación. Útil para depuración.
+        Motivo de clasificación. Útil para depuración.
     """
     query_type: QueryType
     matched_command: str | None
@@ -176,16 +193,12 @@ class ClassificationResult:
 
 def _extract_explicit_command(text: str) -> str | None:
     """
-    Busca en el texto el nombre de un comando SCPI documentado de forma
-    explícita (p. ej. "FREQ", "RBW?", "OPT_POW_1310").
-
-    La búsqueda es insensible a mayúsculas y tolera un '?' final.
+    Busca el nombre de un comando SCPI documentado de forma explícita.
+    Ordena por longitud descendente para que OPT_POW_1310 tenga preferencia
+    sobre OPT_POW.
     """
-    # Ordenar por longitud descendente para que OPT_POW_1310 tenga preferencia
-    # sobre OPT_POW cuando ambas aparecen en el texto.
     from llm.knowledge.command_catalog import COMMAND_CATALOG
     sorted_names = sorted(COMMAND_CATALOG.keys(), key=len, reverse=True)
-
     normalized = text.upper()
     for name in sorted_names:
         pattern = rf"(?<![A-Z0-9_]){re.escape(name)}\??(?![A-Z0-9_])"
@@ -196,8 +209,8 @@ def _extract_explicit_command(text: str) -> str | None:
 
 def _score_candidates(normalized_input: str) -> list[tuple[str, int]]:
     """
-    Devuelve la lista de comandos candidatos con su número de keywords
-    coincidentes, ordenados de mayor a menor score.
+    Devuelve candidatos de comandos con su score de keywords, ordenados
+    de mayor a menor.
     """
     scored: list[tuple[str, int]] = []
     for command_name, keywords in COMMAND_KEYWORDS.items():
@@ -214,15 +227,20 @@ def classify(user_input: str) -> ClassificationResult:
     """
     Clasifica una consulta de la rama knowledge en su tipo más específico.
 
-    El orden de evaluación es:
-    1. Detección fuera de dominio  →  unsupported
-    2. Nombre de comando explícito →  exact_command (high confidence)
-    3. Heurística de alta confianza (1 candidato fuerte) → exact_command/metric
-    4. Marcadores how_to          →  how_to
-    5. Marcadores topic           →  topic
-    6. Marcadores broad_knowledge →  broad_knowledge
-    7. Candidato único con score bajo → topic (low confidence)
-    8. Fallback                   →  broad_knowledge (low confidence)
+    Orden de evaluación:
+    1. Fuera de dominio              →  unsupported
+    2. Nombre de comando explícito   →  exact_command / metric_definition (high)
+    3. Marcadores how_to             →  how_to   (ANTES que heurística)
+    4. Marcadores topic              →  topic    (ANTES que heurística)
+    5. Heurística candidato dominante → exact_command / metric_definition
+    6. Marcadores broad_knowledge    →  broad_knowledge
+    7. Candidato único score bajo    →  topic (low)
+    8. Fallback                      →  broad_knowledge (low)
+
+    Los pasos 3 y 4 se evalúan antes que el 5 para evitar que consultas
+    como "como cambio de banda en modo radio" sean capturadas por la
+    heurística de keywords (que detectaría MODE) en lugar de clasificarse
+    correctamente como how_to.
     """
     normalized = _normalize_text(user_input)
 
@@ -248,14 +266,38 @@ def classify(user_input: str) -> ClassificationResult:
             reason=f"explicit_command_name_found:{explicit}",
         )
 
-    # 3. Heurística de alta confianza: un único candidato dominante
+    # 3. Marcadores how_to — ANTES de la heurística
+    if any(marker in normalized for marker in HOW_TO_MARKERS):
+        scored = _score_candidates(normalized)
+        top = scored[0][0] if scored else None
+        return ClassificationResult(
+            query_type="how_to",
+            matched_command=top,
+            confidence="high" if top else "low",
+            reason="how_to_marker_matched",
+        )
+
+    # 4. Marcadores topic — ANTES de la heurística
+    if any(marker in normalized for marker in TOPIC_MARKERS):
+        scored = _score_candidates(normalized)
+        top = scored[0][0] if scored else None
+        return ClassificationResult(
+            query_type="topic",
+            matched_command=top,
+            confidence="high" if scored else "low",
+            reason="topic_marker_matched",
+        )
+
+    # 5. Heurística de alta confianza: candidato dominante
     scored = _score_candidates(normalized)
     if scored:
         top_command, top_score = scored[0]
         is_dominant = (
             len(scored) == 1
-            or top_score >= HIGH_CONFIDENCE_MATCH_THRESHOLD
-            and (len(scored) < 2 or top_score > scored[1][1])
+            or (
+                top_score >= HIGH_CONFIDENCE_MATCH_THRESHOLD
+                and (len(scored) < 2 or top_score > scored[1][1])
+            )
         )
         if is_dominant:
             query_type = (
@@ -270,27 +312,6 @@ def classify(user_input: str) -> ClassificationResult:
                 reason=f"heuristic_high_confidence:{top_command}(score={top_score})",
             )
 
-    # 4. Marcadores how_to
-    if any(marker in normalized for marker in HOW_TO_MARKERS):
-        # Si hay candidatos, el how_to es sobre un comando/área concreto
-        top = scored[0][0] if scored else None
-        return ClassificationResult(
-            query_type="how_to",
-            matched_command=top,
-            confidence="high" if top else "low",
-            reason="how_to_marker_matched",
-        )
-
-    # 5. Marcadores topic
-    if any(marker in normalized for marker in TOPIC_MARKERS):
-        top = scored[0][0] if scored else None
-        return ClassificationResult(
-            query_type="topic",
-            matched_command=top,
-            confidence="high" if scored else "low",
-            reason="topic_marker_matched",
-        )
-
     # 6. Marcadores broad_knowledge
     if any(marker in normalized for marker in BROAD_KNOWLEDGE_MARKERS):
         return ClassificationResult(
@@ -300,8 +321,8 @@ def classify(user_input: str) -> ClassificationResult:
             reason="broad_knowledge_marker_matched",
         )
 
-    # 7. Candidato único con score bajo → tratarlo como topic
-    if len(scored) == 1:
+    # 7. Candidato único con score bajo → topic
+    if scored and len(scored) == 1:
         return ClassificationResult(
             query_type="topic",
             matched_command=scored[0][0],

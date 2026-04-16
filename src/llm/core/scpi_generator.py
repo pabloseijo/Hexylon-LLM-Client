@@ -148,33 +148,59 @@ def detect_intent(user_input: str) -> Intent:
     text = user_input.lower()
 
     knowledge_markers = [
+        # Explicación directa
         "qué hace",
         "que hace",
         "qué devuelve",
         "que devuelve",
         "qué significa",
         "que significa",
+        "qué es",
+        "que es",
+        "qué son",
+        "que son",
         "explícame",
         "explicame",
+        "explica",
+        "puedes explicarme",
+        # Funcionamiento
         "cómo funciona",
         "como funciona",
+        "cómo se usa",
+        "como se usa",
+        "cómo se utiliza",
+        "como se utiliza",
+        "cómo puedo",
+        "como puedo",
+        "cómo cambio",
+        "como cambio",
+        "cómo selecciono",
+        "como selecciono",
+        "cómo configuro",
+        "como configuro",
+        # Restricciones y sintaxis
         "qué restricciones",
         "que restricciones",
         "qué opciones",
         "que opciones",
-        "para qué sirve",
-        "para que sirve",
-        "diferencia entre",
         "sintaxis",
         "documentación",
         "documentacion",
+        # Listados y áreas
+        "qué comandos",
+        "que comandos",
         "qué comandos existen",
         "que comandos existen",
-        "cómo se usa",
-        "como se usa",
+        "qué comandos hay",
+        "que comandos hay",
+        "comandos para",
+        "comandos de",
+        "para qué sirve",
+        "para que sirve",
+        "diferencia entre",
+        # Ayuda general
         "ayuda",
-        "explica",
-        "puedes explicarme",
+        "help",
         "quién eres",
         "quien eres",
         "tu función",
@@ -185,11 +211,28 @@ def detect_intent(user_input: str) -> Intent:
         "que puedes hacer",
     ]
 
+    # Marcadores que indican claramente que está fuera del dominio
+    out_of_domain_markers = [
+        "receta",
+        "tiempo",
+        "clima",
+        "deporte",
+        "película",
+        "pelicula",
+        "música",
+        "musica",
+        "política",
+        "politica",
+        "chiste",
+    ]
+
+    if any(marker in text for marker in out_of_domain_markers):
+        return "knowledge"  # El clasificador lo capturará como unsupported
+
     if any(marker in text for marker in knowledge_markers):
         return "knowledge"
 
     return "command"
-
 
 def build_command_messages(user_input: str) -> list[dict[str, str]]:
     """
