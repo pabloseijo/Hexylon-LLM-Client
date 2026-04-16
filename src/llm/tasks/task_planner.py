@@ -31,7 +31,6 @@ Debes devolver ÚNICAMENTE un objeto JSON válido con esta estructura exacta:
   "commands": ["CMD1?", "CMD2?"],
   "interval_seconds": <número>,
   "duration_seconds": <número>,
-  "output_file": "<nombre_fichero>.csv",
   "description": "<descripción breve de la tarea>"
 }
 
@@ -41,7 +40,6 @@ Reglas obligatorias:
 - Añade '?' a los comandos de lectura si no lo tienen.
 - "interval_seconds" debe ser un número positivo en segundos.
 - "duration_seconds" debe ser un número positivo en segundos.
-- "output_file" debe ser SOLO el nombre del fichero CSV, sin ruta. Ejemplo: medicion_POW_20260416_1200.csv
 - Si no puedes determinar algún parámetro con seguridad, usa estos valores por defecto:
     interval_seconds: 10
     duration_seconds: 60
@@ -94,13 +92,14 @@ def _get_output_dir() -> Path:
 
 def _build_output_filename(commands: list[str]) -> str:
     """
-    Genera un nombre de fichero CSV con timestamp y comandos incluidos.
-    Ejemplo: medicion_POW_MER_20260416_1200.csv
+    Genera un nombre de fichero CSV único con timestamp detallado.
+
+    Ejemplo:
+    medicion_POW_MER_20260416_111945_482193.csv
     """
-    now = datetime.now().strftime("%Y%m%d_%H%M")
+    now = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     cmd_names = "_".join(cmd.rstrip("?") for cmd in commands[:3])
     return f"medicion_{cmd_names}_{now}.csv"
-
 
 def _parse_plan_response(raw: str, user_input: str) -> TaskPlan:
     """
@@ -162,10 +161,8 @@ def _parse_plan_response(raw: str, user_input: str) -> TaskPlan:
             f"La duración debe ser positiva, recibida: {duration}"
         )
 
-    # Nombre de fichero: usar el del LLM (solo nombre) o generar uno
-    output_filename = data.get("output_file") or _build_output_filename(commands)
-    # Asegurar que es solo el nombre, sin ruta
-    output_filename = Path(output_filename).name
+    # El nombre del fichero se genera siempre de forma determinista en cliente
+    output_filename = _build_output_filename(commands)
     output_file = str(_get_output_dir() / output_filename)
 
     description = data.get("description") or user_input

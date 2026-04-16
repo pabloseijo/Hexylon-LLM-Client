@@ -126,8 +126,6 @@ class TaskExecutor:
                         started_at=started_at,
                         finished_at=datetime.now(),
                     )
-                    if self.on_complete:
-                        self.on_complete(self._result)
                     return
 
                 iteration += 1
