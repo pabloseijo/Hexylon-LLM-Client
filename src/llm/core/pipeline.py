@@ -347,24 +347,40 @@ def _on_task_complete(result: TaskResult) -> None:
     )
     session_memory.clear_last_task_if_matches(result.plan.task_id)
 
+    # Registrar alertas disparadas
+    for alert_message in result.triggered_alerts:
+        session_log.log_task_alert_triggered(
+            task_id=result.plan.task_id,
+            alert_message=alert_message,
+        )
+
     if result.status == TaskStatus.COMPLETED:
+        if result.stop_reason:
+            session_log.log_task_stop_condition_triggered(
+                task_id=result.plan.task_id,
+                stop_reason=result.stop_reason,
+            )
+
         session_log.log_task_completed(
             task_id=result.plan.task_id,
             description=result.plan.description,
             output_file=result.output_file or "",
             measurements=result.total_measurements,
+            stop_reason=result.stop_reason,
         )
         task_history.record_completed(
             task_id=result.plan.task_id,
             output_file=result.output_file or "",
             measurements=result.total_measurements,
         )
+
     elif result.status == TaskStatus.CANCELLED:
         session_log.log_task_cancelled(result.plan.task_id)
         task_history.record_cancelled(
             task_id=result.plan.task_id,
             measurements=result.total_measurements,
         )
+
     elif result.status == TaskStatus.FAILED:
         session_log.log_task_failed(
             task_id=result.plan.task_id,
@@ -381,6 +397,16 @@ def _on_task_complete(result: TaskResult) -> None:
         f"Mediciones: {result.total_measurements}. "
         f"CSV: {result.output_file or 'no generado'}."
     )
+
+    if result.stop_reason:
+        completion_notice += f" Motivo de parada: {result.stop_reason}."
+
+    if result.triggered_alerts:
+        alert_lines = " | ".join(
+            alert.summary_line() for alert in result.triggered_alerts
+        )
+        completion_notice += f" Alertas disparadas: {alert_lines}."
+
     conversation_history.add_assistant_message(completion_notice)
 
     print("\n")
@@ -388,7 +414,7 @@ def _on_task_complete(result: TaskResult) -> None:
     print(result.summary())
     print("=" * 50)
     print(">>> ", end="", flush=True)
-
+    
 
 def _handle_launch_task(user_input: str) -> str:
     plan_or_error = try_plan_task(user_input)
@@ -413,21 +439,35 @@ def _handle_launch_task(user_input: str) -> str:
         output_file=plan.output_file,
     )
 
-    return (
-        f"Tarea lanzada: {plan.description}\n"
-        f"  ID:          {plan.task_id}\n"
-        f"  Comandos:    {', '.join(plan.commands)}\n"
-        f"  Intervalo:   {plan.interval_seconds}s\n"
-        f"  Duración:    {plan.duration_seconds}s "
-        f"({int(plan.duration_seconds // 60)} min)\n"
-        f"  Iteraciones: {plan.total_iterations}\n"
-        f"  Salida:      {plan.output_file}\n"
-        f"Puedes seguir usando el chat mientras la tarea se ejecuta en segundo plano.\n"
-        f"Para cancelarla di:\n"
-        f'  - "cancela la tarea"\n'
-        f'  - "cancela la tarea 1"\n'
-        f'  - "cancela la tarea {plan.task_id}"'
-    )
+    lines = [
+        f"Tarea lanzada: {plan.description}",
+        f"  ID:          {plan.task_id}",
+        f"  Comandos:    {', '.join(plan.commands)}",
+        f"  Intervalo:   {plan.interval_seconds}s",
+        f"  Duración:    {plan.duration_seconds}s ({int(plan.duration_seconds // 60)} min)",
+        f"  Iteraciones: {plan.total_iterations}",
+        f"  Salida:      {plan.output_file}",
+    ]
+
+    if plan.alert_conditions:
+        lines.append("  Alertas:")
+        for condition in plan.alert_conditions:
+            lines.append(f"    - {condition}")
+
+    if plan.stop_conditions:
+        lines.append("  Parada automática:")
+        for condition in plan.stop_conditions:
+            lines.append(f"    - {condition}")
+
+    lines.extend([
+        "Puedes seguir usando el chat mientras la tarea se ejecuta en segundo plano.",
+        "Para cancelarla di:",
+        '  - "cancela la tarea"',
+        '  - "cancela la tarea 1"',
+        f'  - "cancela la tarea {plan.task_id}"',
+    ])
+
+    return "\n".join(lines)
 
 
 def _handle_cancel_task(user_input: str) -> str:

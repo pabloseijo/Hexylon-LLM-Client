@@ -1,8 +1,11 @@
 """
 Modelos de datos para la rama de tareas del cliente LLM de Hexylon.
 
-Define las estructuras que representan un plan de tarea, su estado
-durante la ejecución y el resultado final.
+Define las estructuras que representan:
+- un plan de tarea
+- condiciones de alerta / parada
+- una medición individual
+- el resultado final de una tarea
 """
 
 from __future__ import annotations
@@ -14,11 +17,11 @@ from enum import Enum
 
 class TaskStatus(Enum):
     """Estado del ciclo de vida de una tarea."""
-    PENDING   = "pending"    # creada, aún no iniciada
-    RUNNING   = "running"    # en ejecución
-    COMPLETED = "completed"  # finalizada correctamente
-    FAILED    = "failed"     # finalizada con error
-    CANCELLED = "cancelled"  # cancelada por el usuario
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 def _generate_task_id() -> str:
@@ -27,18 +30,65 @@ def _generate_task_id() -> str:
 
 
 @dataclass
+class TaskCondition:
+    """
+    Condición evaluable durante la ejecución de una tarea.
+
+    Attributes
+    ----------
+    command:
+        Comando SCPI sobre cuyo valor se evalúa la condición.
+        Ejemplo: "MER?", "POW?", "CBER?", "LOCK?"
+    operator:
+        Operador de comparación.
+        Soportados inicialmente: <, <=, >, >=, ==
+    threshold_raw:
+        Valor umbral en formato legible original.
+        Ejemplo: "20 dB", "60 dBuV", "1E-4", "TRUE"
+    action:
+        Acción asociada a la condición:
+        - "alert"
+        - "stop"
+    description:
+        Texto legible de la condición.
+    """
+    command: str
+    operator: str
+    threshold_raw: str
+    action: str
+    description: str = ""
+
+    def __post_init__(self) -> None:
+        self.command = self.command if self.command.endswith("?") else f"{self.command}?"
+        self.operator = self.operator.strip()
+        self.action = self.action.strip().lower()
+
+        valid_operators = {"<", "<=", ">", ">=", "=="}
+        if self.operator not in valid_operators:
+            raise ValueError(
+                f"Operador no soportado en TaskCondition: {self.operator}"
+            )
+
+        if self.action not in {"alert", "stop"}:
+            raise ValueError(
+                f"Acción no soportada en TaskCondition: {self.action}"
+            )
+
+    def __str__(self) -> str:
+        return self.description or (
+            f"{self.action.upper()}: {self.command} {self.operator} {self.threshold_raw}"
+        )
+
+
+@dataclass
 class TaskPlan:
     """
     Plan de ejecución de una tarea de medición.
-
-    Generado por task_planner.py a partir de lenguaje natural del usuario
-    y consumido por task_executor.py para ejecutar la tarea.
 
     Attributes
     ----------
     commands:
         Lista de comandos SCPI a ejecutar en cada iteración.
-        Ejemplo: ["POW?", "MER?", "CBER?"]
     interval_seconds:
         Intervalo entre iteraciones en segundos.
     duration_seconds:
@@ -46,11 +96,15 @@ class TaskPlan:
     output_file:
         Ruta del fichero CSV donde se guardarán los resultados.
     task_id:
-        Identificador único de la tarea. Generado automáticamente.
+        Identificador único de la tarea.
     description:
-        Descripción legible de la tarea extraída del lenguaje natural.
+        Descripción legible de la tarea.
     created_at:
         Timestamp de creación del plan.
+    alert_conditions:
+        Condiciones que generan alerta pero no detienen la tarea.
+    stop_conditions:
+        Condiciones que detienen automáticamente la tarea.
     """
     commands: list[str]
     interval_seconds: float
@@ -59,6 +113,8 @@ class TaskPlan:
     task_id: str = field(default_factory=_generate_task_id)
     description: str = ""
     created_at: datetime = field(default_factory=datetime.now)
+    alert_conditions: list[TaskCondition] = field(default_factory=list)
+    stop_conditions: list[TaskCondition] = field(default_factory=list)
 
     @property
     def total_iterations(self) -> int:
@@ -68,14 +124,26 @@ class TaskPlan:
         return int(self.duration_seconds / self.interval_seconds)
 
     def __str__(self) -> str:
-        return (
-            f"Tarea {self.task_id}: {self.description}\n"
-            f"  Comandos:    {', '.join(self.commands)}\n"
-            f"  Intervalo:   {self.interval_seconds}s\n"
-            f"  Duración:    {self.duration_seconds}s\n"
-            f"  Iteraciones: {self.total_iterations}\n"
-            f"  Salida:      {self.output_file}"
-        )
+        lines = [
+            f"Tarea {self.task_id}: {self.description}",
+            f"  Comandos:    {', '.join(self.commands)}",
+            f"  Intervalo:   {self.interval_seconds}s",
+            f"  Duración:    {self.duration_seconds}s",
+            f"  Iteraciones: {self.total_iterations}",
+            f"  Salida:      {self.output_file}",
+        ]
+
+        if self.alert_conditions:
+            lines.append("  Alertas:")
+            for condition in self.alert_conditions:
+                lines.append(f"    - {condition}")
+
+        if self.stop_conditions:
+            lines.append("  Parada automática:")
+            for condition in self.stop_conditions:
+                lines.append(f"    - {condition}")
+
+        return "\n".join(lines)
 
 
 @dataclass
@@ -91,12 +159,30 @@ class TaskMeasurement:
         Número de iteración (empieza en 1).
     values:
         Diccionario comando → valor devuelto por el equipo.
-        Ejemplo: {"POW?": "75.5 dBuV", "MER?": "28.3 dB"}
     """
     timestamp: datetime
     iteration: int
     values: dict[str, str]
 
+@dataclass
+class TriggeredAlert:
+    """
+    Alerta disparada durante la ejecución de una tarea.
+    """
+    timestamp: datetime
+    iteration: int
+    command: str
+    current_value: str
+    operator: str
+    threshold_raw: str
+    message: str
+
+    def summary_line(self) -> str:
+        ts = self.timestamp.strftime("%H:%M:%S")
+        return (
+            f"[{ts}] iteración {self.iteration} — "
+            f"{self.command} = {self.current_value} {self.operator} {self.threshold_raw}"
+        )
 
 @dataclass
 class TaskResult:
@@ -114,11 +200,15 @@ class TaskResult:
     output_file:
         Ruta del CSV generado. None si la tarea falló antes de escribir.
     error:
-        Mensaje de error si la tarea falló. None en caso de éxito.
+        Mensaje de error si la tarea falló.
     started_at:
         Timestamp de inicio de ejecución.
     finished_at:
         Timestamp de finalización.
+    triggered_alerts:
+        Lista de alertas disparadas durante la ejecución.
+    stop_reason:
+        Motivo explícito de parada si terminó por condición.
     """
     plan: TaskPlan
     status: TaskStatus
@@ -127,6 +217,8 @@ class TaskResult:
     error: str | None = None
     started_at: datetime | None = None
     finished_at: datetime | None = None
+    triggered_alerts: list[TriggeredAlert] = field(default_factory=list)
+    stop_reason: str | None = None
 
     @property
     def total_measurements(self) -> int:
@@ -145,10 +237,22 @@ class TaskResult:
             f"  Descripción:  {self.plan.description}",
             f"  Mediciones:   {self.total_measurements} / {self.plan.total_iterations}",
         ]
+
         if self.elapsed_seconds is not None:
             lines.append(f"  Tiempo total: {self.elapsed_seconds:.1f}s")
+
         if self.output_file:
             lines.append(f"  CSV guardado: {self.output_file}")
+
+        if self.stop_reason:
+            lines.append(f"  Motivo stop:  {self.stop_reason}")
+
+        if self.triggered_alerts:
+            lines.append("  Alertas:")
+            for alert in self.triggered_alerts:
+                lines.append(f"    - {alert.summary_line()}")
+
         if self.error:
             lines.append(f"  Error:        {self.error}")
+
         return "\n".join(lines)

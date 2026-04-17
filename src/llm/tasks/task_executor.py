@@ -5,6 +5,11 @@ Recibe un TaskPlan y lo ejecuta en un hilo separado, enviando los comandos
 SCPI al equipo a través del MCP en cada iteración y guardando los resultados
 en un CSV de forma incremental.
 
+Soporta:
+- cancelación manual
+- condiciones de alerta
+- condiciones de parada automática
+
 El executor es completamente determinista — no invoca al LLM.
 """
 
@@ -16,12 +21,18 @@ from datetime import datetime
 from typing import Callable
 
 from llm.clients.mcp_client import send_scpi_command
+from llm.tasks.condition_evaluator import (
+    ConditionEvaluationError,
+    evaluate_condition,
+)
 from llm.tasks.csv_writer import CsvWriter
 from llm.tasks.task_models import (
+    TaskCondition,
     TaskMeasurement,
     TaskPlan,
     TaskResult,
     TaskStatus,
+    TriggeredAlert,
 )
 
 
@@ -40,7 +51,7 @@ class TaskExecutor:
         Callback opcional que recibe el TaskResult al finalizar la tarea.
         Se ejecuta desde el hilo de la tarea, no desde el hilo principal.
     """
-
+    
     def __init__(
         self,
         plan: TaskPlan,
@@ -52,6 +63,7 @@ class TaskExecutor:
         self._thread: threading.Thread | None = None
         self._cancel_event = threading.Event()
         self._result: TaskResult | None = None
+        self._triggered_alert_keys: set[str] = set()
 
     @property
     def is_running(self) -> bool:
@@ -105,9 +117,102 @@ class TaskExecutor:
             self._thread.join(timeout=timeout)
         return self._result
 
+    def _evaluate_alert_conditions(
+        self,
+        measurement_values: dict[str, str],
+        triggered_alerts: list[TriggeredAlert],
+        iteration: int,
+        timestamp: datetime,
+    ) -> None:
+        """
+        Evalúa condiciones de alerta y acumula solo las nuevas.
+        """
+        for condition in self.plan.alert_conditions:
+            matched, message = self._safe_evaluate_condition(
+                condition=condition,
+                measurement_values=measurement_values,
+            )
+
+            if not matched:
+                continue
+
+            current_value = measurement_values.get(condition.command, "N/D")
+
+            alert_key = (
+                f"{condition.command}|{condition.operator}|"
+                f"{condition.threshold_raw}|{condition.action}"
+            )
+
+            if alert_key in self._triggered_alert_keys:
+                continue
+
+            self._triggered_alert_keys.add(alert_key)
+
+            alert = TriggeredAlert(
+                timestamp=timestamp,
+                iteration=iteration,
+                command=condition.command,
+                current_value=current_value,
+                operator=condition.operator,
+                threshold_raw=condition.threshold_raw,
+                message=message or condition.description or str(condition),
+            )
+            triggered_alerts.append(alert)
+
+            ts = timestamp.strftime("%H:%M:%S")
+            print("\n")
+            print("!" * 60)
+            print(
+                f"[{ts}] ALERTA iteración {iteration} — "
+                f"{condition.command} = {current_value} "
+                f"{condition.operator} {condition.threshold_raw}"
+            )
+            print("!" * 60)
+            print(">>> ", end="", flush=True)
+            
+    def _evaluate_stop_conditions(
+        self,
+        measurement_values: dict[str, str],
+    ) -> str | None:
+        """
+        Evalúa condiciones de parada.
+
+        Returns
+        -------
+        str | None
+            Motivo de parada si se cumple alguna condición, o None.
+        """
+        for condition in self.plan.stop_conditions:
+            matched, message = self._safe_evaluate_condition(
+                condition=condition,
+                measurement_values=measurement_values,
+            )
+            if matched:
+                return message or str(condition)
+        return None
+
+    def _safe_evaluate_condition(
+        self,
+        condition: TaskCondition,
+        measurement_values: dict[str, str],
+    ) -> tuple[bool, str | None]:
+        """
+        Evalúa una condición capturando errores de comparación para no romper
+        la tarea completa.
+        """
+        try:
+            return evaluate_condition(condition, measurement_values)
+        except ConditionEvaluationError as exc:
+            return False, (
+                f"No se pudo evaluar la condición '{condition}': {exc}"
+            )
+
     def _run(self) -> None:
         """Bucle principal de ejecución. Se ejecuta en el hilo de la tarea."""
         measurements: list[TaskMeasurement] = []
+        triggered_alerts: list[TriggeredAlert] = []
+        stop_reason: str | None = None
+
         started_at = datetime.now()
         writer = CsvWriter(self.plan.output_file, self.plan.commands)
 
@@ -125,6 +230,8 @@ class TaskExecutor:
                         output_file=self.plan.output_file,
                         started_at=started_at,
                         finished_at=datetime.now(),
+                        triggered_alerts=triggered_alerts,
+                        stop_reason=stop_reason,
                     )
                     return
 
@@ -147,6 +254,31 @@ class TaskExecutor:
                 measurements.append(measurement)
                 writer.write_row(measurement)
 
+                # 1. Evaluar alertas
+                self._evaluate_alert_conditions(
+                    measurement_values=values,
+                    triggered_alerts=triggered_alerts,
+                    iteration=iteration,
+                    timestamp=timestamp,
+                )
+
+                # 2. Evaluar parada automática
+                stop_reason = self._evaluate_stop_conditions(
+                    measurement_values=values,
+                )
+                if stop_reason:
+                    self._result = TaskResult(
+                        plan=self.plan,
+                        status=TaskStatus.COMPLETED,
+                        measurements=measurements,
+                        output_file=self.plan.output_file,
+                        started_at=started_at,
+                        finished_at=datetime.now(),
+                        triggered_alerts=triggered_alerts,
+                        stop_reason=stop_reason,
+                    )
+                    return
+
                 # Esperar hasta el próximo intervalo, pero responder a cancel
                 remaining = end_time - time.monotonic()
                 wait_time = min(self.plan.interval_seconds, remaining)
@@ -160,6 +292,8 @@ class TaskExecutor:
                 output_file=self.plan.output_file,
                 started_at=started_at,
                 finished_at=datetime.now(),
+                triggered_alerts=triggered_alerts,
+                stop_reason=stop_reason,
             )
 
         except Exception as exc:
@@ -171,6 +305,8 @@ class TaskExecutor:
                 error=str(exc),
                 started_at=started_at,
                 finished_at=datetime.now(),
+                triggered_alerts=triggered_alerts,
+                stop_reason=stop_reason,
             )
 
         finally:
