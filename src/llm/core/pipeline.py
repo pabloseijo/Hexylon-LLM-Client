@@ -60,9 +60,11 @@ No uses markdown. Responde en prosa técnica clara.
 COMMAND_INTERPRETER_PROMPT = """
 Eres un asistente técnico del equipo Hexylon.
 
-El usuario ha ejecutado un comando SCPI en el equipo y tienes la respuesta raw.
+Tienes acceso al historial de la conversación y a la última respuesta del equipo.
 Interpreta la respuesta de forma clara y natural en español.
 Si la respuesta es un valor de medición, explica qué significa.
+Si el usuario hace una pregunta de seguimiento sobre un valor anterior, respóndela
+usando el historial sin necesidad de ejecutar otro comando.
 No uses markdown. Sé conciso.
 """.strip()
 
@@ -219,6 +221,52 @@ def detect_session_question_intent(user_input: str) -> bool:
 def detect_analysis_intent(user_input: str) -> bool:
     text = user_input.lower()
     return any(marker in text for marker in ANALYSIS_MARKERS)
+
+
+# ---------------------------------------------------------------------------
+# Normalización de prefijos conversacionales
+# ---------------------------------------------------------------------------
+
+def _strip_conversational_prefix(user_input: str) -> str:
+    """
+    Elimina prefijos conversacionales que rompen la detección de intención.
+
+    Ejemplos:
+    - "y eso es un valor alto?"  →  "eso es un valor alto?"
+    - "y que comandos hay?"      →  "que comandos hay?"
+    - "pero como funciona?"      →  "como funciona?"
+    - "entonces dame la freq"    →  "dame la freq"
+    """
+    prefixes = (
+        "y eso ",
+        "y eso,",
+        "y que ",
+        "y qué ",
+        "y como ",
+        "y cómo ",
+        "y cual ",
+        "y cuál ",
+        "pero ",
+        "entonces ",
+        "oye, ",
+        "oye ",
+        "bueno, ",
+        "bueno ",
+        "vale, ",
+        "vale ",
+        "y ",
+    )
+    text = user_input.strip()
+    lower = text.lower()
+
+    for prefix in prefixes:
+        if lower.startswith(prefix):
+            stripped = text[len(prefix):].strip()
+            if stripped and stripped[0].islower():
+                stripped = stripped[0].upper() + stripped[1:]
+            return stripped
+
+    return text
 
 
 # ---------------------------------------------------------------------------
@@ -403,7 +451,8 @@ def _on_task_complete(result: TaskResult) -> None:
 
     if result.triggered_alerts:
         alert_lines = " | ".join(
-            alert.summary_line() for alert in result.triggered_alerts
+            alert.summary_line() if hasattr(alert, "summary_line") else str(alert)
+            for alert in result.triggered_alerts
         )
         completion_notice += f" Alertas disparadas: {alert_lines}."
 
@@ -414,7 +463,7 @@ def _on_task_complete(result: TaskResult) -> None:
     print(result.summary())
     print("=" * 50)
     print(">>> ", end="", flush=True)
-    
+
 
 def _handle_launch_task(user_input: str) -> str:
     plan_or_error = try_plan_task(user_input)
@@ -562,52 +611,54 @@ def run_pipeline(user_input: str) -> str:
     """
     Ejecuta el flujo completo del sistema.
 
-    Registra cada par usuario/asistente en el historial conversacional
-    para que el LLM tenga contexto completo en todas las respuestas narrativas.
-
     Orden de evaluación:
     1. Análisis post-tarea
     2. Pregunta sobre la sesión
     3. Cancelar tarea
     4. Listar tareas
     5. Lanzar tarea periódica
-    6. Knowledge (respuesta documental)
-    7. Command (ejecución SCPI)
+    6. Knowledge / Command vía route_intent (con historial conversacional)
     """
+    # Registrar el input original en el historial
     conversation_history.add_user_message(user_input)
 
+    # Normalizar para detección de intención por marcadores
+    normalized = _strip_conversational_prefix(user_input)
+
     # --- Análisis post-tarea ---
-    if detect_analysis_intent(user_input):
+    if detect_analysis_intent(normalized):
         response = _handle_analysis(user_input)
         conversation_history.add_assistant_message(response)
         return response
 
     # --- Pregunta de sesión ---
-    if detect_session_question_intent(user_input):
+    if detect_session_question_intent(normalized):
         response = _handle_session_question(user_input)
         conversation_history.add_assistant_message(response)
         return response
 
     # --- Cancelación ---
-    if detect_cancel_intent(user_input):
+    if detect_cancel_intent(normalized):
         response = _handle_cancel_task(user_input)
         conversation_history.add_assistant_message(response)
         return response
 
     # --- Listado de tareas ---
-    if detect_list_tasks_intent(user_input):
+    if detect_list_tasks_intent(normalized):
         response = _handle_list_tasks()
         conversation_history.add_assistant_message(response)
         return response
 
     # --- Tarea periódica ---
-    if detect_task_intent(user_input):
+    if detect_task_intent(normalized):
         response = _handle_launch_task(user_input)
         conversation_history.add_assistant_message(response)
         return response
 
-       # --- Routing contextual knowledge / command ---
-    routed_intent = route_intent(user_input)
+    # --- Routing knowledge / command con historial conversacional ---
+    # route_intent usa el historial para resolver referencias como
+    # "y eso", "ese valor", "lo anterior" antes de decidir.
+    routed_intent = route_intent(normalized)
 
     if routed_intent == "knowledge":
         session_log.log_knowledge_query(
@@ -619,12 +670,14 @@ def run_pipeline(user_input: str) -> str:
         from llm.knowledge.context_builder import build_knowledge_payload
         from llm.knowledge.query_classifier import classify
 
-        result = classify(user_input)
+        result = classify(normalized)
 
+        # Respuestas deterministas del catálogo — sin LLM ni historial
         if result.query_type in ("exact_command", "metric_definition", "unsupported"):
-            response = answer_with_knowledge(user_input)
+            response = answer_with_knowledge(normalized)
         else:
-            payload = build_knowledge_payload(user_input, mode="knowledge")
+            # how_to, topic, broad_knowledge — LLM con historial + contexto documental
+            payload = build_knowledge_payload(normalized, mode="knowledge")
             messages = conversation_history.build_messages(
                 system_prompt=KNOWLEDGE_SYSTEM_PROMPT,
                 extra_user_content=f"Contexto documental:\n{payload['context']}",
@@ -635,10 +688,15 @@ def run_pipeline(user_input: str) -> str:
         return response
 
     # --- Command ---
-    scpi_command = generate_scpi(user_input)
+    scpi_command = generate_scpi(normalized)
 
     if scpi_command == "UNKNOWN":
-        response = "No he podido determinar un comando SCPI válido para esa petición."
+        # Antes de rendirnos, intentar responder con el historial
+        # (puede ser una pregunta de seguimiento que route_intent clasificó mal)
+        messages = conversation_history.build_messages(
+            system_prompt=COMMAND_INTERPRETER_PROMPT,
+        )
+        response = ask_llm(messages).strip()
         conversation_history.add_assistant_message(response)
         return response
 
