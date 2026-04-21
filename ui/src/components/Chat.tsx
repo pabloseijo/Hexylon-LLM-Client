@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect, KeyboardEvent } from "react";
+import { useState, useRef, useEffect } from "react";
+import type { KeyboardEvent } from "react";
 import MessageBubble from "./MessageBubble";
 import { sendMessage } from "../api/client";
 import type { Message, WsNotification } from "../types";
@@ -9,12 +10,47 @@ interface Props {
 
 const SYSTEM_MESSAGES: Record<string, (n: WsNotification) => string> = {
   task_completed: (n) =>
-    `✓ Tarea ${n.task_id} completada — ${n.data?.measurements ?? "?"} mediciones. CSV: ${n.data?.output_file ?? "—"}`,
-  task_cancelled: (n) => `✗ Tarea ${n.task_id} cancelada.`,
+    `✓ Tarea ${n.task_id} completada — ${n.data?.measurements ?? "?"} mediciones`,
+  task_cancelled: (n) => `✗ Tarea ${n.task_id} cancelada`,
   task_failed: (n) =>
-    `Error en la tarea ${n.task_id}: ${n.data?.error ?? "error desconocido"}`,
-  task_alert: (n) => `Alerta en ${n.task_id}: ${n.data?.message ?? ""}`,
+    `Error en tarea ${n.task_id}: ${n.data?.error ?? "error desconocido"}`,
+  task_alert: (n) =>
+    `Alerta en ${n.task_id}: ${n.data?.message ?? ""}`,
 };
+
+function getResponseMessage(response: unknown): string {
+  if (typeof response === "string") {
+    return response;
+  }
+
+  if (
+    typeof response === "object" &&
+    response !== null &&
+    "message" in response &&
+    typeof (response as { message?: unknown }).message === "string"
+  ) {
+    return (response as { message: string }).message;
+  }
+
+  return String(response);
+}
+
+function extractAssistantText(response: unknown): string {
+  if (typeof response === "string") {
+    return response;
+  }
+
+  if (
+    typeof response === "object" &&
+    response !== null &&
+    "message" in response &&
+    typeof response.message === "string"
+  ) {
+    return response.message;
+  }
+
+  return String(response);
+}
 
 export default function Chat({ notifications }: Props) {
   const [messages, setMessages] = useState<Message[]>([
@@ -42,7 +78,9 @@ export default function Chat({ notifications }: Props) {
     const last = notifications[notifications.length - 1];
     const builder = SYSTEM_MESSAGES[last.type];
 
-    if (builder) {
+    if (!builder) return;
+
+    queueMicrotask(() => {
       setMessages((prev) => [
         ...prev,
         {
@@ -51,7 +89,7 @@ export default function Chat({ notifications }: Props) {
           ts: new Date(),
         },
       ]);
-    }
+    });
   }, [notifications]);
 
   const handleSend = async () => {
@@ -59,6 +97,7 @@ export default function Chat({ notifications }: Props) {
     if (!text || loading) return;
 
     setInput("");
+
     setMessages((prev) => [
       ...prev,
       { role: "user", content: text, ts: new Date() },
@@ -68,12 +107,20 @@ export default function Chat({ notifications }: Props) {
 
     try {
       const response = await sendMessage(text);
+      const assistantText = getResponseMessage(response);
+
+      // Mensaje assistant
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: response, ts: new Date() },
+        {
+          role: "assistant",
+          content: assistantText,
+          ts: new Date(),
+        },
       ]);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Error desconocido";
+
       setMessages((prev) => [
         ...prev,
         {
@@ -91,7 +138,7 @@ export default function Chat({ notifications }: Props) {
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      handleSend();
+      void handleSend();
     }
   };
 
@@ -139,10 +186,11 @@ export default function Chat({ notifications }: Props) {
         />
 
         <button
-          onClick={handleSend}
+          onClick={() => {
+            void handleSend();
+          }}
           disabled={loading || !input.trim()}
-          className="flex h-[34px] w-[34px] shrink-0 cursor-pointer items-center justify-center rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-card)] text-[var(--color-text-muted)] transition-colors hover:border-[var(--color-accent)] hover:bg-[var(--color-accent-soft)] hover:text-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-30"
-          aria-label="Enviar mensaje"
+          className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-card)] text-[var(--color-text-muted)] transition-colors hover:border-[var(--color-accent)] hover:bg-[var(--color-accent-soft)] hover:text-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-30"
         >
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
             <path

@@ -5,11 +5,12 @@ Expone el pipeline como API REST + WebSocket para que el frontend React
 pueda consumirlo.
 
 Endpoints:
-    POST /chat              →  envía un mensaje al pipeline y devuelve respuesta
-    GET  /tasks             →  lista las tareas activas
-    DELETE /tasks/{task_id} →  cancela una tarea activa
-    GET  /tasks/history     →  historial persistente de tareas
-    WS   /ws                →  WebSocket para notificaciones en tiempo real
+    POST /chat              → envía un mensaje al pipeline y devuelve respuesta
+    GET  /tasks             → lista las tareas activas
+    DELETE /tasks/{task_id} → cancela una tarea activa
+    GET  /tasks/history     → historial persistente de tareas
+    WS   /ws                → WebSocket para notificaciones en tiempo real
+    GET  /download          → descarga de CSV generado por tareas
 
 Arrancar:
     PYTHONPATH=src uvicorn src.api.server:app --reload --port 8000
@@ -18,16 +19,22 @@ Arrancar:
 from __future__ import annotations
 
 import asyncio
+import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from api.task_notifier import set_notify_fn
 from llm.core.pipeline import run_pipeline
 from llm.memory.task_history import task_history
 from llm.tasks.task_executor import cancel_task, get_active_tasks
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -43,19 +50,24 @@ class ConnectionManager:
     async def connect(self, websocket: WebSocket) -> None:
         await websocket.accept()
         self._connections.append(websocket)
+        logger.info("WebSocket conectado. Conexiones activas: %s", len(self._connections))
 
     def disconnect(self, websocket: WebSocket) -> None:
         if websocket in self._connections:
             self._connections.remove(websocket)
+            logger.info("WebSocket desconectado. Conexiones activas: %s", len(self._connections))
 
     async def broadcast(self, message: dict[str, Any]) -> None:
         """Envía un mensaje a todas las conexiones activas."""
         dead: list[WebSocket] = []
+
         for connection in self._connections:
             try:
                 await connection.send_json(message)
             except Exception:
+                logger.exception("Fallo enviando mensaje WS. Se eliminará la conexión.")
                 dead.append(connection)
+
         for connection in dead:
             self.disconnect(connection)
 
@@ -67,29 +79,34 @@ manager = ConnectionManager()
 # Cola de notificaciones de tareas
 # ---------------------------------------------------------------------------
 
-# Cola asyncio para pasar notificaciones desde hilos de tareas al loop asyncio
 _notification_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+_main_loop: asyncio.AbstractEventLoop | None = None
 
 
 def notify_task_event(event: dict[str, Any]) -> None:
     """
-    Llamado desde hilos de tareas (síncronos) para encolar una notificación.
-    Se ejecuta desde el thread del executor, no desde el loop asyncio.
+    Encola una notificación desde cualquier hilo.
+
+    Esta función está pensada para ser llamada desde los hilos del executor,
+    por lo que debe publicar en el event loop principal mediante
+    call_soon_threadsafe.
     """
+    if _main_loop is None:
+        logger.warning("Loop principal no inicializado. Evento descartado: %s", event)
+        return
+
     try:
-        loop = asyncio.get_event_loop()
-        loop.call_soon_threadsafe(_notification_queue.put_nowait, event)
+        logger.info("Encolando evento: %s", event)
+        _main_loop.call_soon_threadsafe(_notification_queue.put_nowait, event)
     except Exception:
-        pass
+        logger.exception("No se pudo encolar el evento: %s", event)
 
 
 async def _notification_dispatcher() -> None:
-    """
-    Tarea asyncio que lee la cola y hace broadcast a los WebSocket.
-    Corre en background mientras el servidor está activo.
-    """
+    """Despacha eventos de la cola al gestor WebSocket."""
     while True:
         event = await _notification_queue.get()
+        logger.info("Broadcast evento WS: %s", event)
         await manager.broadcast(event)
 
 
@@ -99,10 +116,21 @@ async def _notification_dispatcher() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Arranca el dispatcher de notificaciones al iniciar el servidor."""
-    task = asyncio.create_task(_notification_dispatcher())
-    yield
-    task.cancel()
+    global _main_loop
+
+    _main_loop = asyncio.get_running_loop()
+    set_notify_fn(notify_task_event)
+
+    dispatcher_task = asyncio.create_task(_notification_dispatcher())
+
+    try:
+        yield
+    finally:
+        dispatcher_task.cancel()
+        try:
+            await dispatcher_task
+        except asyncio.CancelledError:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -117,7 +145,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # En producción, restringir al dominio del frontend
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -132,17 +160,19 @@ class ChatRequest(BaseModel):
     message: str
 
 
-class ChatResponse(BaseModel):
-    response: str
-
-
 class TaskSummary(BaseModel):
     task_id: str
     description: str
     commands: list[str]
     interval_seconds: float
     duration_seconds: float
-    output_file: str
+    output_file: str | None = None
+    status: str = "active"
+
+
+class ChatResponse(BaseModel):
+    message: str
+    task: TaskSummary | None = None
 
 
 class CancelResponse(BaseModel):
@@ -159,17 +189,27 @@ class CancelResponse(BaseModel):
 async def chat(request: ChatRequest) -> ChatResponse:
     """
     Envía un mensaje al pipeline y devuelve la respuesta.
-    El pipeline es síncrono — se ejecuta en un thread para no bloquear.
+    El pipeline es síncrono, por lo que se ejecuta en un thread pool.
     """
-    loop = asyncio.get_event_loop()
-    response = await loop.run_in_executor(None, run_pipeline, request.message)
-    return ChatResponse(response=response)
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(None, run_pipeline, request.message)
+
+    if isinstance(result, dict):
+        task_data = result.get("task")
+        task = TaskSummary(**task_data) if task_data else None
+        return ChatResponse(
+            message=result.get("message", ""),
+            task=task,
+        )
+
+    return ChatResponse(message=str(result))
 
 
 @app.get("/tasks", response_model=list[TaskSummary])
 async def list_active_tasks() -> list[TaskSummary]:
     """Lista las tareas activas en este momento."""
     active = get_active_tasks()
+
     return [
         TaskSummary(
             task_id=task_id,
@@ -178,6 +218,7 @@ async def list_active_tasks() -> list[TaskSummary]:
             interval_seconds=executor.plan.interval_seconds,
             duration_seconds=executor.plan.duration_seconds,
             output_file=executor.plan.output_file,
+            status="active",
         )
         for task_id, executor in active.items()
     ]
@@ -187,12 +228,14 @@ async def list_active_tasks() -> list[TaskSummary]:
 async def cancel_active_task(task_id: str) -> CancelResponse:
     """Cancela una tarea activa por su ID."""
     cancelled = cancel_task(task_id)
+
     if cancelled:
         return CancelResponse(
             cancelled=True,
             task_id=task_id,
             message=f"Tarea {task_id} cancelada.",
         )
+
     return CancelResponse(
         cancelled=False,
         task_id=task_id,
@@ -217,27 +260,34 @@ async def health() -> dict[str, str]:
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket) -> None:
-    """
-    Conexión WebSocket para notificaciones en tiempo real.
-
-    El frontend se conecta aquí y recibe eventos cuando:
-    - una tarea se completa
-    - una tarea es cancelada
-    - una tarea falla
-    - una alerta es disparada
-
-    Formato de mensaje:
-    {
-        "type": "task_completed" | "task_cancelled" | "task_failed" | "task_alert",
-        "task_id": "...",
-        "data": { ... }
-    }
-    """
     await manager.connect(websocket)
+
     try:
         while True:
-            # Mantener la conexión viva esperando mensajes del cliente
-            # (el cliente puede enviar pings o mensajes de keepalive)
-            await websocket.receive_text()
+            message = await websocket.receive()
+
+            if message["type"] == "websocket.disconnect":
+                break
+
     except WebSocketDisconnect:
+        pass
+    finally:
         manager.disconnect(websocket)
+
+# ---------------------------------------------------------------------------
+# Descarga de ficheros generados por tareas
+# ---------------------------------------------------------------------------
+
+@app.get("/download")
+def download(file: str = Query(...)) -> FileResponse:
+    """
+    Descarga un fichero generado por una tarea.
+
+    Valida la ruta recibida y comprueba su existencia real.
+    """
+    path = Path(file).expanduser().resolve()
+
+    if not path.exists() or not path.is_file():
+        raise HTTPException(status_code=404, detail="Fichero no encontrado")
+
+    return FileResponse(path, filename=path.name)

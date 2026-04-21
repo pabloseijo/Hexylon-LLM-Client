@@ -20,6 +20,7 @@ import time
 from datetime import datetime
 from typing import Callable
 
+from api.task_notifier import notify_event
 from llm.clients.mcp_client import send_scpi_command
 from llm.tasks.condition_evaluator import (
     ConditionEvaluationError,
@@ -51,7 +52,7 @@ class TaskExecutor:
         Callback opcional que recibe el TaskResult al finalizar la tarea.
         Se ejecuta desde el hilo de la tarea, no desde el hilo principal.
     """
-    
+
     def __init__(
         self,
         plan: TaskPlan,
@@ -159,6 +160,17 @@ class TaskExecutor:
             )
             triggered_alerts.append(alert)
 
+            notify_event({
+                "type": "task_alert",
+                "task_id": self.plan.task_id,
+                "data": {
+                    "message": alert.message,
+                    "command": alert.command,
+                    "current_value": alert.current_value,
+                    "iteration": alert.iteration,
+                },
+            })
+
             ts = timestamp.strftime("%H:%M:%S")
             print("\n")
             print("!" * 60)
@@ -169,7 +181,7 @@ class TaskExecutor:
             )
             print("!" * 60)
             print(">>> ", end="", flush=True)
-            
+
     def _evaluate_stop_conditions(
         self,
         measurement_values: dict[str, str],
@@ -254,7 +266,6 @@ class TaskExecutor:
                 measurements.append(measurement)
                 writer.write_row(measurement)
 
-                # 1. Evaluar alertas
                 self._evaluate_alert_conditions(
                     measurement_values=values,
                     triggered_alerts=triggered_alerts,
@@ -262,7 +273,6 @@ class TaskExecutor:
                     timestamp=timestamp,
                 )
 
-                # 2. Evaluar parada automática
                 stop_reason = self._evaluate_stop_conditions(
                     measurement_values=values,
                 )
@@ -279,7 +289,6 @@ class TaskExecutor:
                     )
                     return
 
-                # Esperar hasta el próximo intervalo, pero responder a cancel
                 remaining = end_time - time.monotonic()
                 wait_time = min(self.plan.interval_seconds, remaining)
                 if wait_time > 0:
@@ -342,9 +351,44 @@ def launch_task(
     TaskExecutor
         El executor en ejecución.
     """
+
     def _on_complete_wrapper(result: TaskResult) -> None:
         with _lock:
             _active_tasks.pop(result.plan.task_id, None)
+
+        if result.status == TaskStatus.COMPLETED:
+            notify_event({
+                "type": "task_completed",
+                "task_id": result.plan.task_id,
+                "data": {
+                    "status": "completed",
+                    "output_file": result.output_file,
+                    "measurements": result.total_measurements,
+                    "stop_reason": result.stop_reason,
+                },
+            })
+
+        elif result.status == TaskStatus.CANCELLED:
+            notify_event({
+                "type": "task_cancelled",
+                "task_id": result.plan.task_id,
+                "data": {
+                    "status": "cancelled",
+                    "measurements": result.total_measurements,
+                },
+            })
+
+        elif result.status == TaskStatus.FAILED:
+            notify_event({
+                "type": "task_failed",
+                "task_id": result.plan.task_id,
+                "data": {
+                    "status": "failed",
+                    "error": result.error or "error desconocido",
+                    "measurements": result.total_measurements,
+                },
+            })
+
         if on_complete:
             on_complete(result)
 
@@ -353,6 +397,20 @@ def launch_task(
 
     with _lock:
         _active_tasks[plan.task_id] = executor
+
+    notify_event({
+        "type": "task_created",
+        "task_id": plan.task_id,
+        "data": {
+            "task_id": plan.task_id,
+            "description": plan.description,
+            "commands": plan.commands,
+            "interval_seconds": plan.interval_seconds,
+            "duration_seconds": plan.duration_seconds,
+            "output_file": plan.output_file,
+            "status": "active",
+        },
+    })
 
     return executor
 

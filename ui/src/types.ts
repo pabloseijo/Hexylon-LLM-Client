@@ -1,10 +1,11 @@
 export type MessageRole = "user" | "assistant" | "system";
-
+export type TaskStatus = "active" | "completed" | "failed" | "cancelled";
 export interface Message {
   role: MessageRole;
   content: string;
   ts: Date;
 }
+
 
 export interface TaskSummary {
   task_id: string;
@@ -12,17 +13,19 @@ export interface TaskSummary {
   commands: string[];
   interval_seconds: number;
   duration_seconds: number;
-  output_file: string;
+  output_file?: string | null;
+  status?: TaskStatus;
 }
 
 export interface WsNotification {
-  type: "task_completed" | "task_cancelled" | "task_failed" | "task_alert";
+  type: string;
   task_id: string;
-  data: Record<string, string | number | null>;
+  data?: Record<string, unknown>;
 }
 
 export interface ChatResponse {
-  response: string;
+  message: string;
+  task?: TaskSummary | null;
 }
 
 export interface CancelResponse {

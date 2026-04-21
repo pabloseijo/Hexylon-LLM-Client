@@ -1,4 +1,5 @@
 import re
+from typing import Any
 
 from llm.clients.mcp_client import send_scpi_command
 from llm.clients.ollama_client import ask_llm
@@ -465,7 +466,7 @@ def _on_task_complete(result: TaskResult) -> None:
     print(">>> ", end="", flush=True)
 
 
-def _handle_launch_task(user_input: str) -> str:
+def _handle_launch_task(user_input: str) -> dict[str, Any] | str:
     plan_or_error = try_plan_task(user_input)
     if isinstance(plan_or_error, str):
         return plan_or_error
@@ -516,9 +517,22 @@ def _handle_launch_task(user_input: str) -> str:
         f'  - "cancela la tarea {plan.task_id}"',
     ])
 
-    return "\n".join(lines)
+    message = "\n".join(lines)
 
-
+    return {
+        "message": message,
+        "task": {
+            "task_id": plan.task_id,
+            "description": plan.description,
+            "commands": plan.commands,
+            "interval_seconds": plan.interval_seconds,
+            "duration_seconds": plan.duration_seconds,
+            "output_file": plan.output_file,
+            "status": "active",
+        },
+    }
+    
+    
 def _handle_cancel_task(user_input: str) -> str:
     target_id, error = _resolve_task_id_for_cancel(user_input)
     if error:
@@ -607,57 +621,41 @@ def _handle_analysis(user_input: str) -> str:
 # Pipeline principal
 # ---------------------------------------------------------------------------
 
-def run_pipeline(user_input: str) -> str:
-    """
-    Ejecuta el flujo completo del sistema.
 
-    Orden de evaluación:
-    1. Análisis post-tarea
-    2. Pregunta sobre la sesión
-    3. Cancelar tarea
-    4. Listar tareas
-    5. Lanzar tarea periódica
-    6. Knowledge / Command vía route_intent (con historial conversacional)
-    """
-    # Registrar el input original en el historial
+def run_pipeline(user_input: str) -> dict[str, Any] | str:
     conversation_history.add_user_message(user_input)
-
-    # Normalizar para detección de intención por marcadores
     normalized = _strip_conversational_prefix(user_input)
 
-    # --- Análisis post-tarea ---
     if detect_analysis_intent(normalized):
         response = _handle_analysis(user_input)
         conversation_history.add_assistant_message(response)
         return response
 
-    # --- Pregunta de sesión ---
     if detect_session_question_intent(normalized):
         response = _handle_session_question(user_input)
         conversation_history.add_assistant_message(response)
         return response
 
-    # --- Cancelación ---
     if detect_cancel_intent(normalized):
         response = _handle_cancel_task(user_input)
         conversation_history.add_assistant_message(response)
         return response
 
-    # --- Listado de tareas ---
     if detect_list_tasks_intent(normalized):
         response = _handle_list_tasks()
         conversation_history.add_assistant_message(response)
         return response
 
-    # --- Tarea periódica ---
     if detect_task_intent(normalized):
         response = _handle_launch_task(user_input)
+
+        if isinstance(response, dict):
+            conversation_history.add_assistant_message(response["message"])
+            return response
+
         conversation_history.add_assistant_message(response)
         return response
 
-    # --- Routing knowledge / command con historial conversacional ---
-    # route_intent usa el historial para resolver referencias como
-    # "y eso", "ese valor", "lo anterior" antes de decidir.
     routed_intent = route_intent(normalized)
 
     if routed_intent == "knowledge":
@@ -672,11 +670,9 @@ def run_pipeline(user_input: str) -> str:
 
         result = classify(normalized)
 
-        # Respuestas deterministas del catálogo — sin LLM ni historial
         if result.query_type in ("exact_command", "metric_definition", "unsupported"):
             response = answer_with_knowledge(normalized)
         else:
-            # how_to, topic, broad_knowledge — LLM con historial + contexto documental
             payload = build_knowledge_payload(normalized, mode="knowledge")
             messages = conversation_history.build_messages(
                 system_prompt=KNOWLEDGE_SYSTEM_PROMPT,
@@ -687,12 +683,9 @@ def run_pipeline(user_input: str) -> str:
         conversation_history.add_assistant_message(response)
         return response
 
-    # --- Command ---
     scpi_command = generate_scpi(normalized)
 
     if scpi_command == "UNKNOWN":
-        # Antes de rendirnos, intentar responder con el historial
-        # (puede ser una pregunta de seguimiento que route_intent clasificó mal)
         messages = conversation_history.build_messages(
             system_prompt=COMMAND_INTERPRETER_PROMPT,
         )

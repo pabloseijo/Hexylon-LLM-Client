@@ -1,6 +1,8 @@
 # Hexylon LLM Client
 
-Cliente inteligente para control de equipos Hexylon mediante lenguaje natural, basado en una arquitectura desacoplada LLM → MCP → Hexylon.
+Cliente inteligente para control de equipos Hexylon mediante lenguaje natural, basado en una arquitectura desacoplada:
+
+LLM → MCP → Hexylon
 
 ---
 
@@ -15,6 +17,9 @@ El sistema permite:
 - Lanzar tareas de medición periódicas
 - Analizar resultados automáticamente
 - Mantener contexto conversacional durante la sesión
+- Visualizar tareas en una interfaz web
+- Recibir actualizaciones en tiempo real por WebSocket
+- Descargar resultados CSV generados por las tareas
 
 Arquitectura global:
 
@@ -22,9 +27,9 @@ LLM → MCP → Hexylon
 
 Donde:
 
-- Hexylon expone una API SCPI sobre TCP (puerto 5025)
-- MCP actúa como pasarela transparente (sin lógica)
-- Este cliente implementa toda la inteligencia
+- Hexylon expone una API SCPI sobre TCP en el puerto 5025
+- MCP actúa como pasarela transparente, sin lógica de negocio
+- Este cliente implementa toda la inteligencia, la planificación, la ejecución de tareas, la memoria y la interfaz de usuario
 
 ---
 
@@ -42,15 +47,19 @@ Ejemplo:
 
 ## 2. Consultas documentales (knowledge)
 
+Permite consultar:
+
 - Qué hace un comando
 - Qué devuelve
 - Qué métricas existen
 - Cómo funciona una parte del sistema
+- Qué restricciones tiene la API
 
 Con tres niveles de respuesta:
-- determinista (catálogo)
-- semideterminista (topics)
-- LLM con contexto controlado
+
+- determinista mediante catálogo
+- semideterminista mediante topics
+- LLM con contexto documental controlado
 
 ---
 
@@ -61,19 +70,24 @@ Ejemplo:
 "mídeme POW y MER cada 10 segundos durante 2 minutos"
 
 El sistema:
+
 - genera un TaskPlan mediante LLM
 - ejecuta la tarea en segundo plano
 - guarda resultados en CSV
 - permite cancelación y monitorización
+- expone el estado por API REST y WebSocket
+- refleja tareas activas en la interfaz web
 
 ---
 
 ## 4. Análisis automático de resultados
 
-- Parseo robusto de CSV
-- Cálculo de estadísticas
-- Detección de tendencias
-- Respuesta interpretada por LLM
+Incluye:
+
+- parseo robusto de CSV
+- cálculo de estadísticas
+- detección de tendencias
+- interpretación de resultados mediante LLM
 
 ---
 
@@ -81,16 +95,35 @@ El sistema:
 
 Sistema de memoria en 4 niveles:
 
-- Estado de sesión (última tarea, último CSV)
-- Log de eventos (acciones realizadas)
+- Estado de sesión
+- Log de eventos
 - Historial persistente de tareas
 - Historial conversacional completo
 
 Permite:
 
-- follow-ups ("y eso qué significa")
-- contexto continuo
-- preguntas sobre la sesión
+- follow-ups como "y eso qué significa"
+- contexto continuo durante la sesión
+- preguntas sobre el estado del sistema y de las tareas
+
+---
+
+## 6. Interfaz web en tiempo real
+
+La interfaz web permite:
+
+- enviar mensajes al pipeline
+- ver tareas activas
+- ver estados de tareas
+- recibir eventos del sistema en tiempo real
+- descargar CSV generados
+
+La UI utiliza:
+
+- React
+- TypeScript
+- Vite
+- WebSocket para sincronización en tiempo real con el backend
 
 ---
 
@@ -118,10 +151,20 @@ Usuario → Pipeline → LLM (si aplica) → MCP → Hexylon → Interpretación
 
 # Estructura del proyecto
 
+## src/api/
+
+server.py  
+Servidor FastAPI que expone la API REST y el WebSocket para la interfaz web
+
+task_notifier.py  
+Puente entre el código síncrono de tareas y el sistema de notificaciones del backend
+
+---
+
 ## src/llm/clients/
 
 ollama_client.py  
-Cliente HTTP para el LLM (Ollama remoto)
+Cliente HTTP para el LLM
 
 mcp_client.py  
 Cliente de comunicación con MCP
@@ -163,16 +206,16 @@ Sistema documental estructurado
 Sistema de memoria en múltiples niveles
 
 session_memory.py  
-Estado operativo (última tarea, último CSV, etc.)
+Estado operativo inmediato
 
 session_log.py  
-Eventos de sesión en RAM
+Eventos estructurados en memoria
 
 task_history.py  
-Historial persistente en ~/.hexylon
+Historial persistente en disco
 
 conversation_history.py  
-Historial conversacional para el LLM
+Historial conversacional compatible con el LLM
 
 ---
 
@@ -181,7 +224,7 @@ Historial conversacional para el LLM
 Sistema de ejecución de tareas
 
 task_planner.py  
-LLM → TaskPlan (JSON estructurado)
+Conversión LLM → TaskPlan estructurado
 
 task_executor.py  
 Ejecución en hilo separado
@@ -195,12 +238,59 @@ Análisis de resultados
 task_models.py  
 Modelos de datos
 
+condition_evaluator.py  
+Evaluación determinista de condiciones de alerta y parada
+
 ---
 
 ## src/llm/normalization/
 
 unit_normalizer.py  
 Normalización de unidades y valores
+
+---
+
+## ui/
+
+Interfaz web React + TypeScript + Vite
+
+### ui/src/components/
+
+Chat.tsx  
+Consola principal de interacción
+
+TaskPanel.tsx  
+Panel lateral de tareas
+
+MessageBubble.tsx  
+Render de mensajes de conversación
+
+### ui/src/hooks/
+
+useWebSocket.ts  
+Gestión de conexión WebSocket y reconexión
+
+### ui/src/api/
+
+client.ts  
+Cliente HTTP frontend para consumir el backend
+
+### ui/src/types.ts
+
+Tipos compartidos del frontend
+
+---
+
+## scripts/
+
+chat_pipeline.py  
+Chat CLI interactivo del pipeline
+
+run_pipeline.py  
+Ejecución directa del pipeline
+
+run.sh  
+Arranque conjunto de backend y frontend
 
 ---
 
@@ -215,21 +305,25 @@ Validación de comportamiento conversacional completo
 
 # Sistema de tareas
 
-Pipeline:
+Flujo general:
 
-1. Usuario define tarea en lenguaje natural
-2. LLM genera TaskPlan estructurado
-3. Executor lanza hilo asíncrono
+1. El usuario define una tarea en lenguaje natural
+2. El LLM genera un TaskPlan estructurado
+3. El TaskExecutor lanza la tarea en un hilo separado
 4. Se ejecutan comandos SCPI periódicamente
 5. Se guardan resultados en CSV
 6. Se actualiza memoria y logs
+7. El backend emite eventos de tarea por WebSocket
+8. La interfaz web sincroniza el estado en tiempo real
 
-Características:
+Características principales:
 
 - cancelación inmediata
 - múltiples tareas concurrentes
-- escritura incremental
-- integración con análisis
+- escritura incremental en CSV
+- análisis posterior de resultados
+- eventos task_created, task_completed, task_cancelled, task_failed y task_alert
+- consulta de tareas activas por REST
 
 ---
 
@@ -238,6 +332,7 @@ Características:
 ## Nivel 1 — session_memory
 
 Estado inmediato:
+
 - última tarea lanzada
 - última tarea completada
 - último CSV
@@ -248,16 +343,22 @@ Estado inmediato:
 ## Nivel 2 — session_log
 
 Eventos estructurados:
+
 - TASK_LAUNCHED
 - TASK_COMPLETED
+- TASK_CANCELLED
+- TASK_FAILED
+- TASK_ALERT_TRIGGERED
 - COMMAND_SENT
 - KNOWLEDGE_QUERY
+- SESSION_QUESTION
 
 ---
 
 ## Nivel 3 — task_history
 
 Persistencia en disco:
+
 ~/.hexylon/task_history.jsonl
 
 ---
@@ -267,8 +368,8 @@ Persistencia en disco:
 Historial conversacional completo:
 
 - máximo 20 turnos
-- formato compatible con Ollama
-- usado en todas las respuestas narrativas
+- formato compatible con el cliente LLM
+- usado en respuestas narrativas e interpretativas
 
 ---
 
@@ -278,33 +379,125 @@ No se utiliza un prompt monolítico.
 
 El sistema:
 
-1. Clasifica la consulta
-2. Selecciona comandos relevantes
-3. Selecciona topics relevantes
-4. Construye contexto dinámico
-5. Ejecuta LLM con contexto mínimo necesario
+1. clasifica la consulta
+2. selecciona comandos relevantes
+3. selecciona topics relevantes
+4. construye contexto dinámico
+5. ejecuta el LLM con el contexto mínimo necesario
 
 Ventajas:
 
 - menor consumo de tokens
 - mayor precisión
 - menor alucinación
+- mayor control del contexto inyectado
+
+---
+
+# API del backend
+
+## Endpoints principales
+
+POST /chat  
+Envía un mensaje al pipeline y devuelve la respuesta interpretada.  
+Si la petición genera una tarea, también devuelve la metadata de la tarea.
+
+GET /tasks  
+Devuelve las tareas activas actuales.
+
+DELETE /tasks/{task_id}  
+Cancela una tarea activa.
+
+GET /tasks/history  
+Devuelve historial persistente de tareas.
+
+GET /health  
+Healthcheck básico del backend.
+
+GET /download?file=...  
+Descarga un CSV generado por una tarea.
+
+WS /ws  
+Canal WebSocket para eventos en tiempo real.
+
+## Eventos WebSocket
+
+El backend emite:
+
+- task_created
+- task_completed
+- task_cancelled
+- task_failed
+- task_alert
 
 ---
 
 # Ejecución
 
-Ejecutar el chat interactivo:
+## 1. Ejecutar backend + frontend juntos
 
-PYTHONPATH=src python3 scripts/chat_pipeline.py
+Desde la raíz del proyecto:
+```bash
+    ./scripts/run.sh
+```
+
+Esto arranca:
+
+- Backend FastAPI en http://127.0.0.1:8001
+- Frontend Vite en http://127.0.0.1:5173
+
+---
+
+## 2. Ejecutar solo el backend
+
+Desde la raíz del proyecto:
+
+```bash
+    PYTHONPATH=src uvicorn src.api.server:app --reload --port 8001
+```
+
+---
+
+## 3. Ejecutar solo el frontend
+
+Desde el directorio ui:
+
+```bash
+    npm install
+    npm run dev -- --host 127.0.0.1 --port 5173
+```
+
+---
+
+## 4. Ejecutar el chat CLI
+
+Desde la raíz del proyecto:
+
+```bash
+    PYTHONPATH=src python3 scripts/chat_pipeline.py
+```
+
+---
+
+## 5. Ejecutar el pipeline directamente
+
+Desde la raíz del proyecto:
+
+```bash
+    PYTHONPATH=src python3 scripts/run_pipeline.py
+```
 
 ---
 
 # Pruebas
 
-Ejecutar batería de pruebas:
+## Ejecutar batería principal
 
-PYTHONPATH=src python3 test/test_chat_flows.py
+Desde la raíz del proyecto:
+
+```bash
+    PYTHONPATH=src python3 test/test_chat_flows.py
+```
 
 Casos cubiertos:
 
@@ -317,6 +510,18 @@ Casos cubiertos:
 
 ---
 
+# Requisitos
+
+Entorno previsto:
+
+- Python 3.10 o superior
+- Node.js y npm para la interfaz web
+- acceso al MCP configurado
+- acceso al equipo Hexylon a través del MCP
+- LLM accesible desde el cliente
+
+---
+
 # Principios de diseño
 
 ## Separación estricta
@@ -324,6 +529,7 @@ Casos cubiertos:
 - MCP sin lógica
 - LLM como capa de inteligencia
 - ejecución determinista en tasks
+- UI separada del backend
 
 ---
 
@@ -332,6 +538,7 @@ Casos cubiertos:
 - uso solo donde aporta valor
 - validación de outputs
 - prompts restrictivos
+- reducción del contexto a lo estrictamente necesario
 
 ---
 
@@ -339,7 +546,9 @@ Casos cubiertos:
 
 - parsing de CSV
 - ejecución de tareas
+- condiciones y alertas
 - estructura de memoria
+- sincronización de tareas desde backend como fuente de verdad
 
 ---
 
@@ -348,6 +557,7 @@ Casos cubiertos:
 - modularidad clara
 - responsabilidades aisladas
 - fácil evolución
+- backend y frontend desacoplados
 
 ---
 
@@ -359,17 +569,22 @@ Sistema funcional con:
 - memoria conversacional integrada
 - tareas asíncronas estables
 - análisis automático funcional
-- batería de tests validada (6/6)
+- interfaz web operativa
+- sincronización REST + WebSocket estable
+- descarga de CSV desde la UI
+- contrato frontend/backend alineado
 
 ---
 
 # Líneas futuras
 
-- triggers y condiciones en tareas
+- tipado estricto de eventos WebSocket
+- persistencia completa de tareas finalizadas, canceladas y fallidas en endpoint dedicado
 - mejora de interpretación semántica
 - logging estructurado avanzado
-- tests automatizados más extensos
+- tests frontend y end-to-end
 - optimización de prompts
+- consolidación del modelo de estado de tareas
 
 ---
 
