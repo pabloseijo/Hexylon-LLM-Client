@@ -13,8 +13,7 @@ export async function sendMessage(message: string): Promise<ChatResponse> {
     throw new Error(`HTTP ${res.status}`);
   }
 
-  const data: ChatResponse = await res.json();
-  return data;
+  return res.json();
 }
 
 export async function getActiveTasks(): Promise<TaskSummary[]> {

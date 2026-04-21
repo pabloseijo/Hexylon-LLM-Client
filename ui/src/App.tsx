@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import Chat from "./components/Chat";
 import TaskPanel from "./components/TaskPanel";
 import { useWebSocket } from "./hooks/useWebSocket";
-import { getActiveTasks } from "./api/client";
+import { getActiveTasks, getTaskHistory } from "./api/client";
 import type { TaskStatus, TaskSummary, WsNotification } from "./types";
 
 function upsertTask(
@@ -23,27 +23,72 @@ function upsertTask(
 function asTaskSummary(data: Record<string, unknown>): TaskSummary | null {
   if (
     typeof data.task_id !== "string" ||
-    typeof data.description !== "string" ||
-    !Array.isArray(data.commands) ||
-    typeof data.interval_seconds !== "number" ||
-    typeof data.duration_seconds !== "number"
+    typeof data.description !== "string"
   ) {
     return null;
   }
 
-  const commands = data.commands.filter(
-    (value): value is string => typeof value === "string"
-  );
+  const commands = Array.isArray(data.commands)
+    ? data.commands.filter((value): value is string => typeof value === "string")
+    : [];
+
+  const intervalSeconds =
+    typeof data.interval_seconds === "number" ? data.interval_seconds : 0;
+
+  const durationSeconds =
+    typeof data.duration_seconds === "number" ? data.duration_seconds : 0;
+
+  const rawStatus = data.status;
+  const status: TaskStatus =
+    rawStatus === "active" ||
+    rawStatus === "completed" ||
+    rawStatus === "failed" ||
+    rawStatus === "cancelled"
+      ? rawStatus
+      : "active";
 
   return {
     task_id: data.task_id,
     description: data.description,
     commands,
-    interval_seconds: data.interval_seconds,
-    duration_seconds: data.duration_seconds,
+    interval_seconds: intervalSeconds,
+    duration_seconds: durationSeconds,
     output_file:
       typeof data.output_file === "string" ? data.output_file : null,
-    status: "active",
+    status,
+  };
+}
+
+function asHistoryTaskSummary(data: Record<string, unknown>): TaskSummary | null {
+  if (typeof data.task_id !== "string") {
+    return null;
+  }
+
+  const rawStatus = data.status;
+  const status: TaskStatus =
+    rawStatus === "active" ||
+    rawStatus === "completed" ||
+    rawStatus === "failed" ||
+    rawStatus === "cancelled"
+      ? rawStatus
+      : "completed";
+
+  return {
+    task_id: data.task_id,
+    description:
+      typeof data.description === "string"
+        ? data.description
+        : `Tarea ${data.task_id}`,
+    commands: Array.isArray(data.commands)
+      ? data.commands.filter((value): value is string => typeof value === "string")
+      : [],
+    interval_seconds:
+      typeof data.interval_seconds === "number" ? data.interval_seconds : 0,
+    duration_seconds:
+      typeof data.duration_seconds === "number" ? data.duration_seconds : 0,
+    output_file:
+      typeof data.output_file === "string" ? data.output_file : null,
+    status,
   };
 }
 
@@ -55,17 +100,26 @@ export default function App() {
   const [tasks, setTasks] = useState<TaskSummary[]>([]);
   const { notifications, connected } = useWebSocket("ws://127.0.0.1:8001/ws");
 
-  const syncActiveTasks = useCallback(async () => {
+  const syncTasks = useCallback(async () => {
     try {
-      const activeTasks = await getActiveTasks();
+      const [activeTasks, historyTasks] = await Promise.all([
+        getActiveTasks(),
+        getTaskHistory(20),
+      ]);
 
       setTasks((prev) => {
         let next = [...prev];
 
-        for (const task of activeTasks) {
+        for (const rawHistoryTask of historyTasks) {
+          const historyTask = asHistoryTaskSummary(rawHistoryTask);
+          if (!historyTask) continue;
+          next = upsertTask(next, historyTask);
+        }
+
+        for (const activeTask of activeTasks) {
           next = upsertTask(next, {
-            ...task,
-            output_file: task.output_file ?? null,
+            ...activeTask,
+            output_file: activeTask.output_file ?? null,
             status: "active",
           });
         }
@@ -73,23 +127,23 @@ export default function App() {
         return next;
       });
     } catch {
-      // Sin acción
+      // sin acción
     }
   }, []);
 
   useEffect(() => {
     queueMicrotask(() => {
-      void syncActiveTasks();
+      void syncTasks();
     });
-  }, [syncActiveTasks]);
+  }, [syncTasks]);
 
   useEffect(() => {
     if (!connected) return;
 
     queueMicrotask(() => {
-      void syncActiveTasks();
+      void syncTasks();
     });
-  }, [connected, syncActiveTasks]);
+  }, [connected, syncTasks]);
 
   useEffect(() => {
     if (!notifications.length) return;
@@ -104,58 +158,69 @@ export default function App() {
       if (!task) return;
 
       queueMicrotask(() => {
-        setTasks((prev) => upsertTask(prev, task));
-      });      
+        setTasks((prev) =>
+          upsertTask(prev, {
+            ...task,
+            status: "active",
+          })
+        );
+      });
       return;
     }
 
     if (last.type === "task_completed") {
-      setTasks((prev) =>
-        prev.map((t) =>
-          t.task_id === last.task_id
-            ? {
-                ...t,
-                status: "completed",
-                output_file:
-                  typeof last.data?.output_file === "string"
-                    ? last.data.output_file
-                    : (t.output_file ?? null),
-              }
-            : t
-        )
-      );
+      queueMicrotask(() => {
+        setTasks((prev) =>
+          prev.map((t) =>
+            t.task_id === last.task_id
+              ? {
+                  ...t,
+                  status: "completed",
+                  output_file:
+                    typeof last.data?.output_file === "string"
+                      ? last.data.output_file
+                      : (t.output_file ?? null),
+                }
+              : t
+          )
+        );
+      });
       return;
     }
 
     if (last.type === "task_failed") {
-      setTasks((prev) =>
-        prev.map((t) =>
-          t.task_id === last.task_id
-            ? {
-                ...t,
-                status: "failed",
-                output_file:
-                  typeof last.data?.output_file === "string"
-                    ? last.data.output_file
-                    : (t.output_file ?? null),
-              }
-            : t
-        )
-      );
+      queueMicrotask(() => {
+        setTasks((prev) =>
+          prev.map((t) =>
+            t.task_id === last.task_id
+              ? {
+                  ...t,
+                  status: "failed",
+                  output_file:
+                    typeof last.data?.output_file === "string"
+                      ? last.data.output_file
+                      : (t.output_file ?? null),
+                }
+              : t
+          )
+        );
+      });
       return;
     }
 
     if (last.type === "task_cancelled") {
-      setTasks((prev) =>
-        prev.map((t) =>
-          t.task_id === last.task_id
-            ? {
-                ...t,
-                status: "cancelled",
-              }
-            : t
-        )
-      );
+      queueMicrotask(() => {
+        setTasks((prev) =>
+          prev.map((t) =>
+            t.task_id === last.task_id
+              ? {
+                  ...t,
+                  status: "cancelled",
+                }
+              : t
+          )
+        );
+      });
     }
   }, [notifications]);
 
