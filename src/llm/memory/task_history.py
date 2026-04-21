@@ -183,6 +183,16 @@ class TaskHistory:
         with self._lock:
             return self._entries.get(task_id)
 
+    def clear(self) -> None:
+        """Elimina todo el historial persistente de tareas."""
+        with self._lock:
+            self._entries.clear()
+            try:
+                if self._path.exists():
+                    self._path.unlink()
+            except OSError:
+                pass
+
     def build_history_summary(self, n: int = 10) -> str:
         """
         Construye un resumen legible del historial reciente.

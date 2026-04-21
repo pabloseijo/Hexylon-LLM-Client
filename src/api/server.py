@@ -291,3 +291,12 @@ def download(file: str = Query(...)) -> FileResponse:
         raise HTTPException(status_code=404, detail="Fichero no encontrado")
 
     return FileResponse(path, filename=path.name)
+
+
+@app.delete("/tasks/history")
+async def clear_task_history() -> dict[str, str]:
+    """
+    Elimina completamente el historial persistente de tareas.
+    """
+    task_history.clear()
+    return {"message": "Historial de tareas eliminado"}

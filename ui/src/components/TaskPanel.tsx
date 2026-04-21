@@ -119,12 +119,14 @@ interface Props {
   tasks: TaskSummary[];
   notifications: WsNotification[];
   onTaskCancelled: (id: string) => void;
+  onClearHistory: () => void;
 }
 
 export default function TaskPanel({
   tasks,
   notifications,
   onTaskCancelled,
+  onClearHistory,
 }: Props) {
 
   const alerts = notifications.filter((n) => n.type === "task_alert");
@@ -140,9 +142,18 @@ export default function TaskPanel({
       
       {/* Header */}
       <div className="flex h-9 shrink-0 items-center justify-between border-b border-[var(--color-border)] px-4">
-        <span className="text-[10px] font-semibold tracking-[0.14em] text-[var(--color-text-muted)]">
-          TAREAS
-        </span>
+        <div className="flex items-center gap-3">
+          <span className="text-[10px] font-semibold tracking-[0.14em] text-[var(--color-text-muted)]">
+            TAREAS
+          </span>
+
+          <button
+            onClick={onClearHistory}
+            className="text-[9px] font-semibold tracking-[0.1em] text-[var(--color-danger)] transition-opacity hover:opacity-80 cursor-pointer border border-[var(--color-border)] bg-[var(--color-card)] px-2 py-1 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            LIMPIAR HISTÓRICO
+          </button>
+        </div>
 
         <span className="rounded bg-[var(--color-accent-soft)] px-1.5 py-0.5 text-[11px] font-semibold text-[var(--color-accent)]">
           {activeTasks.length}

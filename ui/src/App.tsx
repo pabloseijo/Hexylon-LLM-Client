@@ -2,7 +2,11 @@ import { useCallback, useEffect, useState } from "react";
 import Chat from "./components/Chat";
 import TaskPanel from "./components/TaskPanel";
 import { useWebSocket } from "./hooks/useWebSocket";
-import { getActiveTasks, getTaskHistory } from "./api/client";
+import {
+  clearTaskHistory,
+  getActiveTasks,
+  getTaskHistory,
+} from "./api/client";
 import type { TaskStatus, TaskSummary, WsNotification } from "./types";
 
 function upsertTask(
@@ -224,6 +228,16 @@ export default function App() {
     }
   }, [notifications]);
 
+  const handleClearHistory = async () => {
+  try {
+    await clearTaskHistory();
+
+    setTasks((prev) => prev.filter((t) => t.status === "active"));
+  } catch {
+    // sin acción por ahora
+  }
+};
+
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-[var(--color-bg)] text-[var(--color-text)]">
       <header className="flex h-12 shrink-0 items-center justify-between border-b border-[var(--color-border)] bg-[var(--color-panel)] px-5">
@@ -286,6 +300,7 @@ export default function App() {
               )
             )
           }
+          onClearHistory={handleClearHistory}
         />
       </main>
     </div>

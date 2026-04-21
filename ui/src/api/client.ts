@@ -49,3 +49,13 @@ export async function getTaskHistory(
 
   return res.json();
 }
+
+export async function clearTaskHistory(): Promise<void> {
+  const res = await fetch(`${BASE}/tasks/history`, {
+    method: "DELETE",
+  });
+
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status}`);
+  }
+}
