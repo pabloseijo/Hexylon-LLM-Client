@@ -13,7 +13,6 @@ from llm.tasks.task_analyzer import analyze_csv
 from llm.tasks.task_executor import cancel_task, get_active_tasks, launch_task
 from llm.tasks.task_models import TaskResult, TaskStatus
 from llm.tasks.task_planner import try_plan_task
-from llm.core.interpreter import interpret_response
 
 
 # ---------------------------------------------------------------------------
@@ -54,7 +53,8 @@ Eres un asistente técnico especializado en análisis de señales RF del equipo 
 
 Analiza los resultados de medición proporcionados y responde de forma técnica
 y precisa. Explica qué se midió, los valores relevantes, tendencias y anomalías.
-Si el usuario pregunta por una métrica específica, céntrate en ella.
+Si el usuario pregunta por una métrica específica, céntrate en esa métrica y no
+derives hacia una explicación documental del comando.
 No uses markdown. Responde en prosa técnica clara.
 """.strip()
 
@@ -162,36 +162,32 @@ SESSION_QUESTION_MARKERS = (
 )
 
 ANALYSIS_MARKERS = (
-    "resume la última medición",
-    "resume la ultima medicion",
-    "analiza la última medición",
-    "analiza la ultima medicion",
-    "analiza los resultados",
-    "resumen de la medición",
-    "resumen de la medicion",
-    "cómo evolucionó",
-    "como evoluciono",
-    "cómo fue la medición",
-    "como fue la medicion",
-    "qué pasó con la medición",
-    "que paso con la medicion",
-    "hubo degradación",
-    "hubo degradacion",
-    "degradó la señal",
-    "degrado la senal",
-    "cómo quedó la potencia",
-    "como quedo la potencia",
-    "cómo quedó el mer",
-    "como quedo el mer",
-    "resultados de la tarea",
-    "resultados de la medición",
-    "resultados de la medicion",
+    "analiza",
+    "análisis",
+    "analisis",
+    "resume",
+    "resumen",
+    "resultados",
+    "medición",
+    "medicion",
+    "csv",
+    "evolución",
+    "evolucion",
+    "tendencia",
+    "comportamiento",
+    "valores",
+    "cómo salió",
+    "como salio",
+    "cómo fue",
+    "como fue",
+    "qué pasó",
+    "que paso",
     "qué midió",
     "que midio",
-    "muéstrame los resultados",
-    "muestrame los resultados",
-    "analiza el csv",
-    "analiza los datos",
+    "degradación",
+    "degradacion",
+    "degradó",
+    "degrado",
 )
 
 
@@ -219,11 +215,51 @@ def detect_session_question_intent(user_input: str) -> bool:
     return any(marker in text for marker in SESSION_QUESTION_MARKERS)
 
 
+def _contains_task_reference(user_input: str) -> bool:
+    """
+    Detecta referencias a tareas por:
+    - formato task_YYYY...
+    - identificador temporal sin prefijo (ej. 20260422_103155)
+    - mención explícita de la palabra 'tarea'
+    """
+    text = user_input.lower()
+
+    if "task_" in text:
+        return True
+
+    if "tarea" in text:
+        return True
+
+    if re.search(r"\b20\d{6,8}_\d{6}\b", text):
+        return True
+
+    if re.search(r"\b20\d{10,14}\b", text):
+        return True
+
+    return False
+
+
 def detect_analysis_intent(user_input: str) -> bool:
     text = user_input.lower()
-    return any(marker in text for marker in ANALYSIS_MARKERS)
 
+    # 1. Si parece una tarea → NUNCA es análisis
+    if detect_task_intent(user_input):
+        return False
 
+    # 2. Debe haber referencia a tarea o contexto previo
+    has_task_reference = _contains_task_reference(user_input)
+
+    # 3. Debe haber lenguaje de análisis
+    has_analysis_language = any(marker in text for marker in ANALYSIS_MARKERS)
+
+    # 4. Debe haber contexto real de medición
+    state = session_memory.get_state()
+    has_context = bool(state.last_output_file)
+
+    if has_analysis_language and (has_task_reference or has_context):
+        return True
+
+    return False
 # ---------------------------------------------------------------------------
 # Normalización de prefijos conversacionales
 # ---------------------------------------------------------------------------
@@ -359,22 +395,103 @@ def _resolve_task_id_for_cancel(user_input: str) -> tuple[str | None, str | None
     )
 
 
-def _resolve_csv_for_analysis(user_input: str) -> tuple[str | None, str | None]:
+def _normalize_task_reference(raw: str) -> str:
+    """
+    Normaliza referencias de tarea.
+
+    Ejemplos:
+    - 20260422_103155 -> task_20260422_103155
+    - task_20260422_103155 -> task_20260422_103155
+    """
+    raw = raw.strip()
+
+    if raw.startswith("task_"):
+        return raw
+
+    if re.fullmatch(r"20\d{6,8}_\d{6}", raw):
+        return f"task_{raw}"
+
+    return raw
+
+
+def _extract_task_reference_from_text(user_input: str) -> str | None:
+    """
+    Extrae una referencia de tarea del texto si existe.
+    """
     text = user_input.lower()
 
-    recent = task_history.get_last(20)
+    match = re.search(r"\btask_(20\d{6,8}_\d{6})\b", text)
+    if match:
+        return f"task_{match.group(1)}"
+
+    match = re.search(r"\b(20\d{6,8}_\d{6})\b", text)
+    if match:
+        return f"task_{match.group(1)}"
+
+    return None
+
+
+def _extract_metric_for_analysis(user_input: str) -> str | None:
+    """
+    Extrae una métrica explícitamente mencionada para orientar el análisis.
+    """
+    text = user_input.lower()
+    metrics = (
+        "pow",
+        "mer",
+        "cn",
+        "cber",
+        "vber",
+        "preber",
+        "postber",
+        "preldpcber",
+        "prebchber",
+        "lkm",
+        "per",
+        "ser",
+    )
+
+    for metric in metrics:
+        if re.search(rf"\b{metric}\b", text):
+            return metric.upper()
+
+    return None
+
+
+def _resolve_csv_for_analysis(user_input: str) -> tuple[str | None, str | None]:
+    text = user_input.lower()
+    recent = task_history.get_last(50)
+
+    # 1. Referencia explícita a tarea
+    referenced_task_id = _extract_task_reference_from_text(user_input)
+    if referenced_task_id:
+        normalized_task_id = _normalize_task_reference(referenced_task_id)
+        for entry in recent:
+            if entry.get("task_id") == normalized_task_id:
+                csv_path = entry.get("output_file")
+                if csv_path:
+                    return csv_path, normalized_task_id
+                return None, (
+                    f"La tarea {normalized_task_id} no tiene CSV asociado."
+                )
+
+        return None, f"No he encontrado la tarea {normalized_task_id} en el historial."
+
+    # 2. Coincidencia por task_id completo embebido en texto
     for entry in recent:
         task_id = entry.get("task_id", "")
-        if task_id.lower() in text:
+        if task_id and task_id.lower() in text:
             csv_path = entry.get("output_file")
             if csv_path:
                 return csv_path, task_id
             return None, f"La tarea {task_id} no tiene CSV asociado."
 
+    # 3. Último CSV de sesión
     state = session_memory.get_state()
     if state.last_output_file:
         return state.last_output_file, state.last_completed_task_id or ""
 
+    # 4. Última tarea completada con CSV
     for entry in recent:
         if entry.get("status") == "completed" and entry.get("output_file"):
             return entry["output_file"], entry["task_id"]
@@ -396,7 +513,6 @@ def _on_task_complete(result: TaskResult) -> None:
     )
     session_memory.clear_last_task_if_matches(result.plan.task_id)
 
-    # Registrar alertas disparadas
     for alert_message in result.triggered_alerts:
         session_log.log_task_alert_triggered(
             task_id=result.plan.task_id,
@@ -466,8 +582,8 @@ def _on_task_complete(result: TaskResult) -> None:
     print(result.summary())
     print("=" * 50)
     print(">>> ", end="", flush=True)
-    
-    
+
+
 def _handle_launch_task(user_input: str) -> dict[str, Any] | str:
     plan_or_error = try_plan_task(user_input)
     if isinstance(plan_or_error, str):
@@ -533,7 +649,8 @@ def _handle_launch_task(user_input: str) -> dict[str, Any] | str:
             "status": "active",
         },
     }
-    
+
+
 def _handle_cancel_task(user_input: str) -> str:
     target_id, error = _resolve_task_id_for_cancel(user_input)
     if error:
@@ -611,9 +728,21 @@ def _handle_analysis(user_input: str) -> str:
     except ValueError as exc:
         return f"No he podido leer el CSV: {exc}"
 
+    metric_filter = _extract_metric_for_analysis(user_input)
+    metric_hint = (
+        f"\nMétrica solicitada por el usuario: {metric_filter}"
+        if metric_filter
+        else ""
+    )
+
     messages = conversation_history.build_messages(
         system_prompt=ANALYSIS_INTERPRETER_PROMPT,
-        extra_user_content=f"Análisis calculado:\n{analysis.summary_text}",
+        extra_user_content=(
+            f"Tarea analizada: {task_id_or_error or 'desconocida'}\n"
+            f"Fichero CSV: {csv_path}\n"
+            f"Análisis calculado:\n{analysis.summary_text}"
+            f"{metric_hint}"
+        ),
     )
     return ask_llm(messages).strip()
 
@@ -621,7 +750,6 @@ def _handle_analysis(user_input: str) -> str:
 # ---------------------------------------------------------------------------
 # Pipeline principal
 # ---------------------------------------------------------------------------
-
 
 def run_pipeline(user_input: str) -> dict[str, Any] | str:
     conversation_history.add_user_message(user_input)
@@ -671,7 +799,11 @@ def run_pipeline(user_input: str) -> dict[str, Any] | str:
 
         result = classify(normalized)
 
-        if result.query_type in ("exact_command", "metric_definition", "unsupported"):
+        if result.query_type in (
+            "exact_command",
+            "metric_definition",
+            "unsupported",
+        ):
             response = answer_with_knowledge(normalized)
         else:
             payload = build_knowledge_payload(normalized, mode="knowledge")

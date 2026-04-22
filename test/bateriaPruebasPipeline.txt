@@ -1,0 +1,308 @@
+BATERÍA DE PRUEBAS — REFINO DEL PIPELINE HEXYLON LLM
+
+==================================================
+1. LANZAMIENTO DE TAREAS
+==================================================
+
+[TK-01] Lanzamiento básico
+Input:
+lanzame una tarea que mida el pow cada 5s durante 1 min
+
+Esperado:
+- entra en _handle_launch_task
+- genera TaskPlan válido
+- devuelve mensaje "Tarea lanzada"
+- aparece task_id
+- no entra en analysis ni knowledge
+
+[TK-02] Variante natural
+Input:
+quiero medir el mer cada 10 segundos durante 2 minutos
+
+Esperado:
+- detección correcta de task intent
+- crea tarea
+- no responde con documentación
+
+[TK-03] Variante imperativa corta
+Input:
+mide el cn cada 3s durante 30 s
+
+Esperado:
+- task intent correcto
+- lanza tarea
+- comandos correctos
+
+[TK-04] Múltiples métricas
+Input:
+mídeme pow y mer cada 5 segundos durante 1 minuto
+
+Esperado:
+- TaskPlan con ambos comandos
+- salida coherente
+
+[TK-05] Con alerta
+Input:
+mide pow cada 5 segundos durante 2 minutos y avísame si baja de 55
+
+Esperado:
+- TaskPlan con alert_conditions
+- no cae en knowledge
+
+==================================================
+2. CANCELACIÓN DE TAREAS
+==================================================
+
+[CN-01] Cancelación implícita
+Input:
+cancela la tarea
+
+Esperado:
+- cancela la última activa o la única activa
+- respuesta de confirmación
+
+[CN-02] Cancelación por índice
+Input:
+cancela la tarea 1
+
+Esperado:
+- resuelve correctamente la tarea por posición
+
+[CN-03] Cancelación por id
+Input:
+cancela la tarea task_20260422_105236
+
+Esperado:
+- cancela por ID exacto
+
+[CN-04] Sin tareas activas
+Input:
+cancela la tarea
+
+Esperado:
+- responde "No hay ninguna tarea activa"
+
+==================================================
+3. LISTADO DE TAREAS
+==================================================
+
+[LS-01] Listado básico
+Input:
+qué tareas hay
+
+Esperado:
+- entra en _handle_list_tasks
+- enumera tareas activas
+- no entra en session question ni analysis
+
+[LS-02] Variante natural
+Input:
+hay alguna tarea activa
+
+Esperado:
+- mismo comportamiento
+
+==================================================
+4. ANÁLISIS DE TAREAS
+==================================================
+
+[AN-01] Análisis por id corto
+Input:
+analiza la tarea 20260422_105236
+
+Esperado:
+- entra en _handle_analysis
+- localiza CSV correcto
+- responde con análisis operativo
+- no responde con documentación de API
+
+[AN-02] Análisis por id completo
+Input:
+analiza la tarea task_20260422_105236
+
+Esperado:
+- mismo comportamiento
+
+[AN-03] Análisis por métrica + tarea
+Input:
+analiza la medición POW de la tarea 20260422_105236
+
+Esperado:
+- análisis centrado en POW
+- no responde "qué es POW"
+
+[AN-04] Variante natural
+Input:
+cómo salió la tarea 20260422_105236
+
+Esperado:
+- análisis de resultados
+- no knowledge
+
+[AN-05] Última medición
+Input:
+analiza la última medición
+
+Esperado:
+- usa session_memory.last_output_file o última completada
+- devuelve análisis real
+
+[AN-06] Resultados sin palabra "analiza"
+Input:
+qué pasó con la tarea 20260422_105236
+
+Esperado:
+- debe seguir entrando en analysis
+
+[AN-07] Análisis sin CSV disponible
+Input:
+analiza la tarea 20260422_999999
+
+Esperado:
+- error claro: no se encontró la tarea o no tiene CSV
+
+==================================================
+5. SEPARACIÓN ANALYSIS vs KNOWLEDGE
+==================================================
+
+[KG-01] Knowledge puro
+Input:
+qué devuelve el comando CN?
+
+Esperado:
+- entra en knowledge
+- explicación documental
+- no intenta leer CSV
+
+[KG-02] Definición de métrica
+Input:
+qué es el mer
+
+Esperado:
+- knowledge
+
+[KG-03] Diferenciación crítica
+Input:
+analiza la medición CN de la tarea 20260422_105236
+
+Esperado:
+- analysis
+
+[KG-04] Diferenciación crítica 2
+Input:
+qué es CN
+
+Esperado:
+- knowledge
+
+==================================================
+6. PREGUNTAS DE SESIÓN
+==================================================
+
+[SS-01] Estado de sesión
+Input:
+en qué punto estamos
+
+Esperado:
+- entra en _handle_session_question
+
+[SS-02] Historial ejecutado
+Input:
+qué tareas hemos ejecutado
+
+Esperado:
+- usa task_history.build_history_summary()
+
+[SS-03] Resumen de sesión
+Input:
+resume la sesión
+
+Esperado:
+- usa session_log/session context
+
+==================================================
+7. FOLLOW-UPS CONTEXTUALES
+==================================================
+
+[FW-01] Tras análisis previo
+Input 1:
+analiza la tarea 20260422_105236
+
+Input 2:
+y el pow cómo salió
+
+Esperado:
+- idealmente debería mantener contexto analítico
+- si no lo hace, marcar como mejora futura
+
+[FW-02] Tras comando
+Input 1:
+dame la potencia actual
+
+Input 2:
+y eso es alto
+
+Esperado:
+- follow-up contextual
+- no debe lanzar tarea ni knowledge puro
+
+==================================================
+8. ROBUSTEZ ANTE FRASES NATURALES
+==================================================
+
+[RB-01]
+Input:
+claro, quiero lanzar una tarea que mida el pow cada 3s durante 1 min
+
+Esperado:
+- task intent correcto
+- no analysis
+
+[RB-02]
+Input:
+vale, ahora puedes analizar la tarea 20260422_105236
+
+Esperado:
+- analysis correcto
+
+[RB-03]
+Input:
+pero qué devuelve el comando mer
+
+Esperado:
+- knowledge correcto
+
+==================================================
+9. CRITERIOS DE ACEPTACIÓN
+==================================================
+
+Se considera válida la fase si:
+
+- ninguna petición de lanzamiento cae en analysis
+- ninguna petición de analysis cae en knowledge cuando hay referencia a tarea
+- knowledge puro nunca intenta abrir CSV
+- cancel/list/session siguen funcionando tras el refactor
+- los mensajes ambiguos se resuelven de forma estable y repetible
+
+==================================================
+10. REGISTRO DE RESULTADOS
+==================================================
+
+Para cada caso, anotar:
+
+- ID de prueba
+- input
+- intención esperada
+- intención real observada
+- resultado
+- correcto / incorrecto
+- observaciones
+
+Formato recomendado:
+
+[AN-03]
+Input: analiza la medición POW de la tarea 20260422_105236
+Esperado: analysis
+Observado: analysis
+Resultado: correcto
+Notas: centra la respuesta en POW y no deriva a documentación
