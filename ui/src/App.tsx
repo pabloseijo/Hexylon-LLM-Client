@@ -7,7 +7,7 @@ import {
   getActiveTasks,
   getTaskHistory,
 } from "./api/client";
-import type { TaskStatus, TaskSummary, WsNotification } from "./types";
+import type { TaskSummary, WsNotification } from "./types";
 
 function upsertTask(
   prev: TaskSummary[],
@@ -24,80 +24,19 @@ function upsertTask(
   return [incoming, ...prev];
 }
 
-function asTaskSummary(data: Record<string, unknown>): TaskSummary | null {
-  if (
-    typeof data.task_id !== "string" ||
-    typeof data.description !== "string"
-  ) {
-    return null;
-  }
+function isTaskSummary(data: unknown): data is TaskSummary {
+  if (typeof data !== "object" || data === null) return false;
 
-  const commands = Array.isArray(data.commands)
-    ? data.commands.filter((value): value is string => typeof value === "string")
-    : [];
+  const value = data as Record<string, unknown>;
 
-  const intervalSeconds =
-    typeof data.interval_seconds === "number" ? data.interval_seconds : 0;
-
-  const durationSeconds =
-    typeof data.duration_seconds === "number" ? data.duration_seconds : 0;
-
-  const rawStatus = data.status;
-  const status: TaskStatus =
-    rawStatus === "active" ||
-    rawStatus === "completed" ||
-    rawStatus === "failed" ||
-    rawStatus === "cancelled"
-      ? rawStatus
-      : "active";
-
-  return {
-    task_id: data.task_id,
-    description: data.description,
-    commands,
-    interval_seconds: intervalSeconds,
-    duration_seconds: durationSeconds,
-    output_file:
-      typeof data.output_file === "string" ? data.output_file : null,
-    status,
-  };
-}
-
-function asHistoryTaskSummary(data: Record<string, unknown>): TaskSummary | null {
-  if (typeof data.task_id !== "string") {
-    return null;
-  }
-
-  const rawStatus = data.status;
-  const status: TaskStatus =
-    rawStatus === "active" ||
-    rawStatus === "completed" ||
-    rawStatus === "failed" ||
-    rawStatus === "cancelled"
-      ? rawStatus
-      : "completed";
-
-  return {
-    task_id: data.task_id,
-    description:
-      typeof data.description === "string"
-        ? data.description
-        : `Tarea ${data.task_id}`,
-    commands: Array.isArray(data.commands)
-      ? data.commands.filter((value): value is string => typeof value === "string")
-      : [],
-    interval_seconds:
-      typeof data.interval_seconds === "number" ? data.interval_seconds : 0,
-    duration_seconds:
-      typeof data.duration_seconds === "number" ? data.duration_seconds : 0,
-    output_file:
-      typeof data.output_file === "string" ? data.output_file : null,
-    status,
-  };
-}
-
-function normalizeStatus(status: TaskStatus | undefined): TaskStatus {
-  return status ?? "active";
+  return (
+    typeof value.task_id === "string" &&
+    typeof value.description === "string" &&
+    Array.isArray(value.commands) &&
+    typeof value.interval_seconds === "number" &&
+    typeof value.duration_seconds === "number" &&
+    typeof value.status === "string"
+  );
 }
 
 export default function App() {
@@ -111,27 +50,19 @@ export default function App() {
         getTaskHistory(20),
       ]);
 
-      setTasks((prev) => {
-        let next = [...prev];
+      let next: TaskSummary[] = [];
 
-        for (const rawHistoryTask of historyTasks) {
-          const historyTask = asHistoryTaskSummary(rawHistoryTask);
-          if (!historyTask) continue;
-          next = upsertTask(next, historyTask);
-        }
+      for (const task of historyTasks) {
+        next = upsertTask(next, task);
+      }
 
-        for (const activeTask of activeTasks) {
-          next = upsertTask(next, {
-            ...activeTask,
-            output_file: activeTask.output_file ?? null,
-            status: "active",
-          });
-        }
+      for (const task of activeTasks) {
+        next = upsertTask(next, task);
+      }
 
-        return next;
-      });
+      setTasks(next);
     } catch {
-      // sin acción
+      // sin acción por ahora
     }
   }, []);
 
@@ -156,87 +87,37 @@ export default function App() {
 
     if (
       ["task_created", "task_started", "task_launched"].includes(last.type) &&
-      last.data
+      isTaskSummary(last.data)
     ) {
-      const task = asTaskSummary(last.data);
-      if (!task) return;
-
       queueMicrotask(() => {
-        setTasks((prev) =>
-          upsertTask(prev, {
-            ...task,
-            status: "active",
-          })
-        );
+        setTasks((prev) => upsertTask(prev, last.data));
       });
       return;
     }
 
-    if (last.type === "task_completed") {
+    if (
+      ["task_completed", "task_failed", "task_cancelled"].includes(last.type) &&
+      isTaskSummary(last.data)
+    ) {
       queueMicrotask(() => {
-        setTasks((prev) =>
-          prev.map((t) =>
-            t.task_id === last.task_id
-              ? {
-                  ...t,
-                  status: "completed",
-                  output_file:
-                    typeof last.data?.output_file === "string"
-                      ? last.data.output_file
-                      : (t.output_file ?? null),
-                }
-              : t
-          )
-        );
-      });
-      return;
-    }
-
-    if (last.type === "task_failed") {
-      queueMicrotask(() => {
-        setTasks((prev) =>
-          prev.map((t) =>
-            t.task_id === last.task_id
-              ? {
-                  ...t,
-                  status: "failed",
-                  output_file:
-                    typeof last.data?.output_file === "string"
-                      ? last.data.output_file
-                      : (t.output_file ?? null),
-                }
-              : t
-          )
-        );
-      });
-      return;
-    }
-
-    if (last.type === "task_cancelled") {
-      queueMicrotask(() => {
-        setTasks((prev) =>
-          prev.map((t) =>
-            t.task_id === last.task_id
-              ? {
-                  ...t,
-                  status: "cancelled",
-                }
-              : t
-          )
-        );
+        setTasks((prev) => upsertTask(prev, last.data));
       });
     }
   }, [notifications]);
 
   const handleClearHistory = async () => {
-  try {
-    await clearTaskHistory();
+    try {
+      await clearTaskHistory();
 
-    setTasks((prev) => prev.filter((t) => t.status === "active"));
-  } catch {
-    // sin acción por ahora
-  }
-};
+      // Vaciado inmediato visual
+      setTasks([]);
+
+      // Reconstrucción real desde backend
+      await syncTasks();
+    } catch {
+      // sin acción por ahora
+    }
+  };
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-[var(--color-bg)] text-[var(--color-text)]">
@@ -288,10 +169,7 @@ export default function App() {
         <Chat notifications={notifications} />
 
         <TaskPanel
-          tasks={tasks.map((t) => ({
-            ...t,
-            status: normalizeStatus(t.status),
-          }))}
+          tasks={tasks}
           notifications={notifications}
           onTaskCancelled={(id) =>
             setTasks((prev) =>

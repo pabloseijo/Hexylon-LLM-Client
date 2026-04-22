@@ -26,10 +26,8 @@ export async function getActiveTasks(): Promise<TaskSummary[]> {
   return res.json();
 }
 
-export async function cancelTask(taskId: string): Promise<CancelResponse> {
-  const res = await fetch(`${BASE}/tasks/${taskId}`, {
-    method: "DELETE",
-  });
+export async function getTaskHistory(n = 20): Promise<TaskSummary[]> {
+  const res = await fetch(`${BASE}/tasks/history?n=${n}`);
 
   if (!res.ok) {
     throw new Error(`HTTP ${res.status}`);
@@ -38,10 +36,10 @@ export async function cancelTask(taskId: string): Promise<CancelResponse> {
   return res.json();
 }
 
-export async function getTaskHistory(
-  n = 20
-): Promise<Record<string, unknown>[]> {
-  const res = await fetch(`${BASE}/tasks/history?n=${n}`);
+export async function cancelTask(taskId: string): Promise<CancelResponse> {
+  const res = await fetch(`${BASE}/tasks/${taskId}`, {
+    method: "DELETE",
+  });
 
   if (!res.ok) {
     throw new Error(`HTTP ${res.status}`);

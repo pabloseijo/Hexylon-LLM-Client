@@ -421,6 +421,7 @@ def _on_task_complete(result: TaskResult) -> None:
             task_id=result.plan.task_id,
             output_file=result.output_file or "",
             measurements=result.total_measurements,
+            stop_reason=result.stop_reason,
         )
 
     elif result.status == TaskStatus.CANCELLED:
@@ -428,6 +429,7 @@ def _on_task_complete(result: TaskResult) -> None:
         task_history.record_cancelled(
             task_id=result.plan.task_id,
             measurements=result.total_measurements,
+            stop_reason=result.stop_reason,
         )
 
     elif result.status == TaskStatus.FAILED:
@@ -464,8 +466,8 @@ def _on_task_complete(result: TaskResult) -> None:
     print(result.summary())
     print("=" * 50)
     print(">>> ", end="", flush=True)
-
-
+    
+    
 def _handle_launch_task(user_input: str) -> dict[str, Any] | str:
     plan_or_error = try_plan_task(user_input)
     if isinstance(plan_or_error, str):
@@ -531,7 +533,6 @@ def _handle_launch_task(user_input: str) -> dict[str, Any] | str:
             "status": "active",
         },
     }
-    
     
 def _handle_cancel_task(user_input: str) -> str:
     target_id, error = _resolve_task_id_for_cancel(user_input)

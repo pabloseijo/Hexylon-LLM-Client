@@ -7,13 +7,14 @@ pueda consumirlo.
 Endpoints:
     POST /chat              → envía un mensaje al pipeline y devuelve respuesta
     GET  /tasks             → lista las tareas activas
-    DELETE /tasks/{task_id} → cancela una tarea activa
     GET  /tasks/history     → historial persistente de tareas
+    DELETE /tasks/history   → elimina el historial persistente de tareas
+    DELETE /tasks/{task_id} → cancela una tarea activa
     WS   /ws                → WebSocket para notificaciones en tiempo real
     GET  /download          → descarga de CSV generado por tareas
 
 Arrancar:
-    PYTHONPATH=src uvicorn src.api.server:app --reload --port 8000
+    PYTHONPATH=src uvicorn src.api.server:app --reload --port 8001
 """
 
 from __future__ import annotations
@@ -29,6 +30,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from api.task_presenter import task_executor_to_api, task_history_entry_to_api
 from api.task_notifier import set_notify_fn
 from llm.core.pipeline import run_pipeline
 from llm.memory.task_history import task_history
@@ -50,12 +52,18 @@ class ConnectionManager:
     async def connect(self, websocket: WebSocket) -> None:
         await websocket.accept()
         self._connections.append(websocket)
-        logger.info("WebSocket conectado. Conexiones activas: %s", len(self._connections))
+        logger.info(
+            "WebSocket conectado. Conexiones activas: %s",
+            len(self._connections),
+        )
 
     def disconnect(self, websocket: WebSocket) -> None:
         if websocket in self._connections:
             self._connections.remove(websocket)
-            logger.info("WebSocket desconectado. Conexiones activas: %s", len(self._connections))
+            logger.info(
+                "WebSocket desconectado. Conexiones activas: %s",
+                len(self._connections),
+            )
 
     async def broadcast(self, message: dict[str, Any]) -> None:
         """Envía un mensaje a todas las conexiones activas."""
@@ -65,7 +73,9 @@ class ConnectionManager:
             try:
                 await connection.send_json(message)
             except Exception:
-                logger.exception("Fallo enviando mensaje WS. Se eliminará la conexión.")
+                logger.exception(
+                    "Fallo enviando mensaje WS. Se eliminará la conexión."
+                )
                 dead.append(connection)
 
         for connection in dead:
@@ -92,7 +102,10 @@ def notify_task_event(event: dict[str, Any]) -> None:
     call_soon_threadsafe.
     """
     if _main_loop is None:
-        logger.warning("Loop principal no inicializado. Evento descartado: %s", event)
+        logger.warning(
+            "Loop principal no inicializado. Evento descartado: %s",
+            event,
+        )
         return
 
     try:
@@ -167,7 +180,12 @@ class TaskSummary(BaseModel):
     interval_seconds: float
     duration_seconds: float
     output_file: str | None = None
-    status: str = "active"
+    status: str
+    started_at: str | None = None
+    finished_at: str | None = None
+    measurements: int | None = None
+    error: str | None = None
+    stop_reason: str | None = None
 
 
 class ChatResponse(BaseModel):
@@ -209,19 +227,35 @@ async def chat(request: ChatRequest) -> ChatResponse:
 async def list_active_tasks() -> list[TaskSummary]:
     """Lista las tareas activas en este momento."""
     active = get_active_tasks()
-
     return [
-        TaskSummary(
-            task_id=task_id,
-            description=executor.plan.description,
-            commands=executor.plan.commands,
-            interval_seconds=executor.plan.interval_seconds,
-            duration_seconds=executor.plan.duration_seconds,
-            output_file=executor.plan.output_file,
-            status="active",
-        )
+        TaskSummary(**task_executor_to_api(task_id, executor))
         for task_id, executor in active.items()
     ]
+
+
+@app.get("/tasks/history", response_model=list[TaskSummary])
+async def get_task_history(n: int = 20) -> list[TaskSummary]:
+    """Devuelve el historial persistente de tareas."""
+    return [
+        TaskSummary(**task_history_entry_to_api(entry))
+        for entry in task_history.get_last(n)
+    ]
+
+
+@app.delete("/tasks/history")
+async def clear_task_history() -> dict[str, int | str]:
+    """Elimina completamente el historial persistente de tareas."""
+    before = len(task_history.get_all())
+    task_history.clear()
+    after = len(task_history.get_all())
+
+    logger.info("Historial borrado. Antes: %s | Después: %s", before, after)
+
+    return {
+        "message": "Historial de tareas eliminado",
+        "before": before,
+        "after": after,
+    }
 
 
 @app.delete("/tasks/{task_id}", response_model=CancelResponse)
@@ -241,12 +275,6 @@ async def cancel_active_task(task_id: str) -> CancelResponse:
         task_id=task_id,
         message=f"No se encontró la tarea {task_id} o ya finalizó.",
     )
-
-
-@app.get("/tasks/history")
-async def get_task_history(n: int = 20) -> list[dict[str, Any]]:
-    """Devuelve el historial persistente de tareas."""
-    return task_history.get_last(n)
 
 
 @app.get("/health")
@@ -274,6 +302,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
     finally:
         manager.disconnect(websocket)
 
+
 # ---------------------------------------------------------------------------
 # Descarga de ficheros generados por tareas
 # ---------------------------------------------------------------------------
@@ -291,12 +320,3 @@ def download(file: str = Query(...)) -> FileResponse:
         raise HTTPException(status_code=404, detail="Fichero no encontrado")
 
     return FileResponse(path, filename=path.name)
-
-
-@app.delete("/tasks/history")
-async def clear_task_history() -> dict[str, str]:
-    """
-    Elimina completamente el historial persistente de tareas.
-    """
-    task_history.clear()
-    return {"message": "Historial de tareas eliminado"}

@@ -20,6 +20,7 @@ import time
 from datetime import datetime
 from typing import Callable
 
+from api.task_presenter import task_executor_to_api, task_result_to_api
 from api.task_notifier import notify_event
 from llm.clients.mcp_client import send_scpi_command
 from llm.tasks.condition_evaluator import (
@@ -356,37 +357,27 @@ def launch_task(
         with _lock:
             _active_tasks.pop(result.plan.task_id, None)
 
+        api_task = task_result_to_api(result)
+
         if result.status == TaskStatus.COMPLETED:
             notify_event({
                 "type": "task_completed",
                 "task_id": result.plan.task_id,
-                "data": {
-                    "status": "completed",
-                    "output_file": result.output_file,
-                    "measurements": result.total_measurements,
-                    "stop_reason": result.stop_reason,
-                },
+                "data": api_task,
             })
 
         elif result.status == TaskStatus.CANCELLED:
             notify_event({
                 "type": "task_cancelled",
                 "task_id": result.plan.task_id,
-                "data": {
-                    "status": "cancelled",
-                    "measurements": result.total_measurements,
-                },
+                "data": api_task,
             })
 
         elif result.status == TaskStatus.FAILED:
             notify_event({
                 "type": "task_failed",
                 "task_id": result.plan.task_id,
-                "data": {
-                    "status": "failed",
-                    "error": result.error or "error desconocido",
-                    "measurements": result.total_measurements,
-                },
+                "data": api_task,
             })
 
         if on_complete:
@@ -401,15 +392,7 @@ def launch_task(
     notify_event({
         "type": "task_created",
         "task_id": plan.task_id,
-        "data": {
-            "task_id": plan.task_id,
-            "description": plan.description,
-            "commands": plan.commands,
-            "interval_seconds": plan.interval_seconds,
-            "duration_seconds": plan.duration_seconds,
-            "output_file": plan.output_file,
-            "status": "active",
-        },
+        "data": task_executor_to_api(plan.task_id, executor),
     })
 
     return executor

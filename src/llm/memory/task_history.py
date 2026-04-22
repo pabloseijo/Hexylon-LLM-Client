@@ -7,12 +7,11 @@ Usa formato JSONL (una línea JSON por tarea) para simplicidad y robustez.
 Fichero: ~/.hexylon/task_history.jsonl
 
 Cada entrada tiene dos estados:
-- Al lanzar la tarea: status=running, sin finished_at ni output_file
-- Al completar/cancelar/fallar: se actualiza la línea con el estado final
+- Al lanzar la tarea: status=running, sin finished_at ni output_file final
+- Al completar/cancelar/fallar: se actualiza la entrada con el estado final
 
 Como JSONL no permite actualizar líneas, se mantiene un índice en memoria
-y se reescribe el fichero completo solo al cerrar sesión o cuando se
-actualiza una entrada.
+y se reescribe el fichero completo cuando se añade o actualiza una entrada.
 """
 
 from __future__ import annotations
@@ -33,6 +32,7 @@ def _get_history_path() -> Path:
     env_path = os.getenv("HEXYLON_HISTORY_PATH")
     if env_path:
         return Path(env_path)
+
     history_dir = Path.home() / ".hexylon"
     history_dir.mkdir(parents=True, exist_ok=True)
     return history_dir / "task_history.jsonl"
@@ -66,12 +66,14 @@ class TaskHistory:
         """Carga el historial desde disco al arrancar."""
         if not self._path.exists():
             return
+
         try:
             with open(self._path, "r", encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
                     if not line:
                         continue
+
                     try:
                         entry = json.loads(line)
                         task_id = entry.get("task_id")
@@ -123,7 +125,10 @@ class TaskHistory:
             "started_at": _now_str(),
             "finished_at": None,
             "measurements": None,
+            "error": None,
+            "stop_reason": None,
         }
+
         with self._lock:
             self._entries[task_id] = entry
             self._flush()
@@ -133,6 +138,7 @@ class TaskHistory:
         task_id: str,
         output_file: str,
         measurements: int,
+        stop_reason: str | None = None,
     ) -> None:
         """Actualiza una tarea como completada."""
         with self._lock:
@@ -142,10 +148,17 @@ class TaskHistory:
                     "finished_at": _now_str(),
                     "output_file": output_file,
                     "measurements": measurements,
+                    "error": None,
+                    "stop_reason": stop_reason,
                 })
                 self._flush()
 
-    def record_cancelled(self, task_id: str, measurements: int) -> None:
+    def record_cancelled(
+        self,
+        task_id: str,
+        measurements: int,
+        stop_reason: str | None = None,
+    ) -> None:
         """Actualiza una tarea como cancelada."""
         with self._lock:
             if task_id in self._entries:
@@ -153,6 +166,7 @@ class TaskHistory:
                     "status": "cancelled",
                     "finished_at": _now_str(),
                     "measurements": measurements,
+                    "stop_reason": stop_reason,
                 })
                 self._flush()
 
@@ -171,6 +185,7 @@ class TaskHistory:
         """Devuelve todas las entradas ordenadas por started_at descendente."""
         with self._lock:
             entries = list(self._entries.values())
+
         entries.sort(key=lambda e: e.get("started_at", ""), reverse=True)
         return entries
 
@@ -186,7 +201,7 @@ class TaskHistory:
     def clear(self) -> None:
         """Elimina todo el historial persistente de tareas."""
         with self._lock:
-            self._entries.clear()
+            self._entries = {}
             try:
                 if self._path.exists():
                     self._path.unlink()
@@ -203,6 +218,7 @@ class TaskHistory:
             return "No hay tareas registradas en el historial."
 
         lines = [f"Últimas {len(recent)} tareas ejecutadas:"]
+
         for entry in recent:
             status_icon = {
                 "completed": "✓",
@@ -218,8 +234,12 @@ class TaskHistory:
                 f"    Estado:      {entry.get('status', '-')}\n"
                 f"    Inicio:      {entry.get('started_at', '-')}\n"
                 f"    Fin:         {entry.get('finished_at', '-') or 'en curso'}\n"
-                f"    CSV:         {entry.get('output_file', '-')}"
+                f"    CSV:         {entry.get('output_file', '-')}\n"
+                f"    Medidas:     {entry.get('measurements', '-')}\n"
+                f"    Error:       {entry.get('error', '-') or '-'}\n"
+                f"    Stop reason: {entry.get('stop_reason', '-') or '-'}"
             )
+
         return "\n".join(lines)
 
 
