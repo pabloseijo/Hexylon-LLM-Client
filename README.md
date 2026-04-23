@@ -117,13 +117,30 @@ La interfaz web permite:
 - ver estados de tareas
 - recibir eventos del sistema en tiempo real
 - descargar CSV generados
+- visualizar respuestas estructuradas en markdown
 
-La UI utiliza:
+Características técnicas:
 
-- React
-- TypeScript
-- Vite
-- WebSocket para sincronización en tiempo real con el backend
+- React + TypeScript + Vite
+- WebSocket para sincronización en tiempo real
+- Renderizado markdown con soporte GFM
+- Layout centrado (max-width controlado)
+- Componentización por roles (user, assistant, system)
+
+---
+
+## 7. Interfaz conversacional avanzada
+
+La interfaz web implementa un modelo de interacción tipo chat moderno con:
+
+- Renderizado completo en markdown (títulos, listas, código)
+- Layout centrado con ancho máximo (1080px)
+- Animación progresiva de escritura (typewriter)
+- Indicador de respuesta en tiempo real (animación tipo “respiración”)
+- Separación visual clara entre usuario, sistema y asistente
+- Estilo consistente con sistema de diseño corporativo
+
+Esto permite una experiencia más legible, estructurada y cercana a herramientas modernas de interacción con LLM.
 
 ---
 
@@ -140,6 +157,7 @@ Orden de evaluación:
 5. Lanzar tarea
 6. Knowledge
 7. Command (SCPI)
+8. Interpretación formateada (markdown)
 
 ---
 
@@ -324,6 +342,7 @@ Características principales:
 - análisis posterior de resultados
 - eventos task_created, task_completed, task_cancelled, task_failed y task_alert
 - consulta de tareas activas por REST
+- representación estructurada en la interfaz (markdown + bloques)
 
 ---
 
@@ -561,6 +580,33 @@ Entorno previsto:
 
 ---
 
+## Presentación estructurada
+
+- uso obligatorio de markdown en respuestas LLM
+- separación semántica de contenido
+- consistencia visual entre mensajes
+- priorización de legibilidad técnica sobre densidad
+
+---
+# Sistema de renderizado
+
+Las respuestas del LLM no se presentan como texto plano.
+
+Se aplica un sistema de renderizado basado en:
+
+- markdown estructurado
+- estilos tipográficos controlados
+- bloques de código diferenciados
+- listas semánticas
+
+Esto permite:
+
+- mejorar la legibilidad técnica
+- evitar ambigüedad en comandos
+- separar claramente contenido funcional y descriptivo
+
+---
+
 # Estado actual
 
 Sistema funcional con:
@@ -573,6 +619,10 @@ Sistema funcional con:
 - sincronización REST + WebSocket estable
 - descarga de CSV desde la UI
 - contrato frontend/backend alineado
+- renderizado markdown completo en frontend
+- animaciones de escritura en respuestas del LLM
+- indicador visual de procesamiento en tiempo real
+- layout UI unificado con ancho máximo controlado
 
 ---
 
@@ -580,12 +630,11 @@ Sistema funcional con:
 
 - tipado estricto de eventos WebSocket
 - persistencia completa de tareas finalizadas, canceladas y fallidas en endpoint dedicado
-- mejora de interpretación semántica
 - logging estructurado avanzado
 - tests frontend y end-to-end
 - optimización de prompts
 - consolidación del modelo de estado de tareas
-
+- mejoras en streaming de tokens y render progresivo
 ---
 
 # Autoría
