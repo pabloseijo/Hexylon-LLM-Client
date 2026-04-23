@@ -160,11 +160,13 @@ export default function Chat({ notifications }: Props) {
           ))}
 
           {loading && (
-            <div className="self-start rounded-[var(--radius-md)] bg-[var(--color-card)] px-3 py-2">
-              <div className="flex gap-1.5">
-                <span className="h-1.5 w-1.5 animate-blink rounded-full bg-[var(--color-accent)]" />
-                <span className="h-1.5 w-1.5 animate-blink-2 rounded-full bg-[var(--color-accent)]" />
-                <span className="h-1.5 w-1.5 animate-blink-3 rounded-full bg-[var(--color-accent)]" />
+            <div className="flex w-full px-6">
+              <div className="mx-auto w-full max-w-[1080px]">
+                <div className="mt-1">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--color-card)]">
+                    <div className="h-5 w-5 animate-breathe rounded-full bg-[var(--color-accent)]" />
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -173,34 +175,68 @@ export default function Chat({ notifications }: Props) {
         </div>
       </div>
 
-      <div className="flex shrink-0 items-end gap-2 border-t border-[var(--color-border)] bg-[var(--color-panel)] px-4 py-3">
-        <textarea
-          ref={inputRef}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="Escribe un comando o una consulta..."
-          rows={1}
-          disabled={loading}
-          className="max-h-28 flex-1 resize-none rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-card)] px-3 py-2 text-[13px] leading-relaxed text-[var(--color-text)] outline-none transition-colors placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-accent)] disabled:opacity-50"
-        />
-
-        <button
-          onClick={() => {
-            void handleSend();
-          }}
-          disabled={loading || !input.trim()}
-          className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-card)] text-[var(--color-text-muted)] transition-colors hover:border-[var(--color-accent)] hover:bg-[var(--color-accent-soft)] hover:text-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-30"
-        >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <path
-              d="M2 8L14 2L8 14L7 9L2 8Z"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinejoin="round"
+      <div className="shrink-0 px-6 pb-2 pt-3 bg-[var(--color-bg)]">
+        <div className="mx-auto w-full max-w-[1080px]">
+          <div
+            className="
+              flex items-end gap-3
+              rounded-[28px]
+              border border-[var(--color-border)]
+              bg-[var(--color-panel)]
+              px-5 py-4
+              shadow-[0_6px_24px_rgba(0,0,0,0.06)]
+            "
+          >
+            <textarea
+              ref={inputRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Escribe un comando o una consulta..."
+              rows={1}
+              disabled={loading}
+              className="
+                min-h-[28px] max-h-40 flex-1 resize-none
+                bg-transparent px-0 py-0
+                text-[15px] leading-relaxed text-[var(--color-text)]
+                outline-none
+                placeholder:text-[var(--color-text-muted)]
+                disabled:opacity-50
+              "
             />
-          </svg>
-        </button>
+
+            <button
+              onClick={() => void handleSend()}
+              disabled={loading || !input.trim()}
+              className="
+                flex h-8 w-8 shrink-0 items-center justify-center
+                rounded-full
+                bg-[var(--color-accent)]
+                text-[var(--color-text-inverse)]
+                transition-all
+                hover:opacity-90
+                disabled:cursor-not-allowed disabled:opacity-35
+              "
+            >
+              <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
+                <path
+                  d="M2 8L14 2L8 14L7 9L2 8Z"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="mt-2 text-center">
+          <p className="text-[11px] text-[var(--color-text-muted)]">
+            El sistema puede cometer errores. Verifica siempre la información crítica antes de utilizarla.
+          </p>
+        </div>
+
       </div>
     </div>
   );

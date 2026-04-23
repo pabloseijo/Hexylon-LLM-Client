@@ -689,35 +689,59 @@ def _handle_launch_task(user_input: str) -> dict[str, Any] | str:
         output_file=plan.output_file,
     )
 
-    lines = [
-        f"Tarea lanzada: {plan.description}",
-        f"  ID:          {plan.task_id}",
-        f"  Comandos:    {', '.join(plan.commands)}",
-        f"  Intervalo:   {plan.interval_seconds}s",
-        f"  Duración:    {plan.duration_seconds}s ({int(plan.duration_seconds // 60)} min)",
-        f"  Iteraciones: {plan.total_iterations}",
-        f"  Salida:      {plan.output_file}",
+    commands_text = ", ".join(plan.commands)
+    duration_minutes = int(plan.duration_seconds // 60)
+
+    sections: list[str] = [
+        "## Tarea lanzada",
+        "",
+        f"**{plan.description}**",
+        "",
+        "## Detalles",
+        "",
+        f"- **ID**: `{plan.task_id}`",
+        f"- **Comandos**: `{commands_text}`",
+        f"- **Intervalo**: **{plan.interval_seconds:.1f}s**",
+        f"- **Duración**: **{plan.duration_seconds:.1f}s** ({duration_minutes} min)",
+        f"- **Iteraciones previstas**: **{plan.total_iterations}**",
+        f"- **Salida**: `{plan.output_file}`",
     ]
 
     if plan.alert_conditions:
-        lines.append("  Alertas:")
+        sections.extend([
+            "",
+            "## Alertas configuradas",
+            "",
+        ])
         for condition in plan.alert_conditions:
-            lines.append(f"    - {condition}")
+            sections.append(f"- {condition}")
 
     if plan.stop_conditions:
-        lines.append("  Parada automática:")
+        sections.extend([
+            "",
+            "## Condiciones de parada automática",
+            "",
+        ])
         for condition in plan.stop_conditions:
-            lines.append(f"    - {condition}")
+            sections.append(f"- {condition}")
 
-    lines.extend([
-        "Puedes seguir usando el chat mientras la tarea se ejecuta en segundo plano.",
-        "Para cancelarla di:",
-        '  - "cancela la tarea"',
-        '  - "cancela la tarea 1"',
-        f'  - "cancela la tarea {plan.task_id}"',
+    sections.extend([
+        "",
+        "## Ejecución",
+        "",
+        "- La tarea se está ejecutando en segundo plano.",
+        "- Puedes seguir usando el chat mientras continúa la medición.",
+        "",
+        "## Cancelación",
+        "",
+        'Puedes cancelarla con cualquiera de estas órdenes:',
+        "",
+        '- `cancela la tarea`',
+        '- `cancela la tarea 1`',
+        f'- `cancela la tarea {plan.task_id}`',
     ])
 
-    message = "\n".join(lines)
+    message = "\n".join(sections)
 
     return {
         "message": message,
@@ -731,7 +755,6 @@ def _handle_launch_task(user_input: str) -> dict[str, Any] | str:
             "status": "active",
         },
     }
-
 
 def _handle_cancel_task(user_input: str) -> str:
     target_id, error = _resolve_task_id_for_cancel(user_input)

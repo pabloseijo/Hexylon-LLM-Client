@@ -1,6 +1,7 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Message } from "../types";
+import { useTypewriter } from "../hooks/useTypewriter";
 
 interface Props {
   message: Message;
@@ -20,20 +21,28 @@ export default function MessageBubble({ message }: Props) {
   const roleLabel =
     role === "user" ? "USUARIO" : role === "assistant" ? "HEXYLON" : "SISTEMA";
 
+  const animatedContent = useTypewriter(role === "assistant" ? content : "");
+
   if (role === "system") {
     return (
-      <div className="animate-fade-up w-full px-6">
-        <div className="mb-1 flex items-center justify-center gap-2">
-          <span className="text-[9px] font-semibold tracking-[0.14em] text-[var(--color-warning)]">
-            {roleLabel}
-          </span>
-          <span className="text-[9px] text-[var(--color-text-muted)]">
-            {time}
-          </span>
-        </div>
+      <div className="animate-fade-up flex w-full px-6">
+        <div className="mx-auto w-full max-w-[1080px] flex flex-col items-center">
+          
+          {/* Header */}
+          <div className="mb-1 flex items-center justify-center gap-2">
+            <span className="text-[9px] font-semibold tracking-[0.14em] text-[var(--color-warning)]">
+              {roleLabel}
+            </span>
+            <span className="text-[9px] text-[var(--color-text-muted)]">
+              {time}
+            </span>
+          </div>
 
-        <div className="mx-auto whitespace-pre-wrap rounded-[var(--radius-md)] border border-[var(--color-accent)] bg-[var(--color-accent-soft)] px-4 py-2 text-center text-[16px] text-[var(--color-text-strong)]">
-          {content}
+          {/* Bubble centrada */}
+          <div className="max-w-[70%] whitespace-pre-wrap break-words rounded-[var(--radius-md)] border border-[var(--color-accent)] bg-[var(--color-accent-soft)] px-4 py-2 text-center text-[13px] text-[var(--color-text-strong)]">
+            {content}
+          </div>
+
         </div>
       </div>
     );
@@ -59,7 +68,7 @@ export default function MessageBubble({ message }: Props) {
           {/* CONTENIDO */}
           <div className="markdown-answer break-words text-[13px] leading-relaxed text-[var(--color-text)]">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {content}
+              {animatedContent}
             </ReactMarkdown>
           </div>
 
@@ -70,19 +79,25 @@ export default function MessageBubble({ message }: Props) {
   }
 
   return (
-    <div className="animate-fade-up flex w-full flex-col items-end gap-1.5 px-4">
-      <div className="flex flex-row-reverse items-center gap-2">
-        <span className="text-[9px] font-semibold tracking-[0.14em] text-[var(--color-accent)]">
-          {roleLabel}
-        </span>
+    <div className="animate-fade-up flex w-full px-6">
+      <div className="mx-auto w-full max-w-[1080px] flex flex-col items-end gap-1.5">
+        
+        {/* Header */}
+        <div className="flex flex-row-reverse items-center gap-2">
+          <span className="text-[9px] font-semibold tracking-[0.14em] text-[var(--color-accent)]">
+            {roleLabel}
+          </span>
 
-        <span className="text-[9px] text-[var(--color-text-muted)]">
-          {time}
-        </span>
-      </div>
+          <span className="text-[9px] text-[var(--color-text-muted)]">
+            {time}
+          </span>
+        </div>
 
-      <div className="whitespace-pre-wrap break-words rounded-[var(--radius-md)] rounded-br-[2px] border border-[var(--color-accent)] bg-[var(--color-accent-soft)] px-4 py-3 text-[13px] leading-relaxed text-[var(--color-text-strong)]">
-        {content}
+        {/* Bubble */}
+        <div className="max-w-[70%] whitespace-pre-wrap break-words rounded-[var(--radius-md)] rounded-br-[2px] border border-[var(--color-accent)] bg-[var(--color-accent-soft)] px-4 py-3 text-[13px] leading-relaxed text-[var(--color-text-strong)]">
+          {content}
+        </div>
+
       </div>
     </div>
   );
