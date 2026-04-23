@@ -173,3 +173,119 @@ body {
 .animate-slide-in {
   animation: slide-in 0.2s ease;
 }
+
+
+
+/*
+-----------------------------------------------
+----- Estilos para respuestas en markdown -----
+-----------------------------------------------
+*/
+
+
+.markdown-answer {
+  line-height: 1.65;
+  font-size: 14px;
+}
+
+/* Párrafos */
+.markdown-answer p {
+  margin: 0 0 0.9rem 0;
+}
+
+.markdown-answer p:last-child {
+  margin-bottom: 0;
+}
+
+/* Títulos */
+.markdown-answer h1,
+.markdown-answer h2,
+.markdown-answer h3 {
+  margin: 1.4rem 0 0.7rem 0;
+  font-weight: 700; /* más peso */
+  line-height: 1.25;
+  letter-spacing: 0.2px; /* ligera mejora de legibilidad */
+}
+
+/* H1 — máximo énfasis */
+.markdown-answer h1 {
+  font-size: 24px;
+  color: var(--color-text-strong);
+}
+
+/* H2 — jerarquía principal */
+.markdown-answer h2 {
+  font-size: 20px;
+  border-bottom: 2px solid var(--color-border); /* más visible */
+  padding-bottom: 4px;
+  color: var(--color-text-strong);
+}
+
+/* H3 — subtítulos */
+.markdown-answer h3 {
+  font-size: 16px;
+  color: var(--color-text);
+  opacity: 0.9;
+}
+
+/* Listas */
+.markdown-answer ul {
+  margin: 0.6rem 0 1rem 1.2rem;
+  padding: 0;
+  list-style-type: disc;  
+}
+
+.markdown-answer ol {
+  margin: 0.6rem 0 1rem 1.2rem;
+  padding: 0;
+  list-style-type: decimal;
+}
+
+.markdown-answer ul,
+.markdown-answer ol {
+  padding-left: 1.2rem; 
+}
+
+.markdown-answer li {
+  margin: 0.3rem 0;
+}
+
+/* Negrita */
+.markdown-answer strong {
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
+
+/* Código inline */
+.markdown-answer code {
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  padding: 0.1rem 0.35rem;
+  border-radius: 6px;
+  font-size: 0.92em;
+}
+
+/* Bloques de código */
+.markdown-answer pre {
+  margin: 0.8rem 0 1rem 0;
+  padding: 0.8rem 1rem;
+  border-radius: 10px;
+  background: #0f172a;
+  color: #e2e8f0;
+  overflow-x: auto;
+  font-size: 12px;
+}
+
+.markdown-answer pre code {
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: inherit;
+}
+
+/* Separadores visuales */
+.markdown-answer hr {
+  border: none;
+  border-top: 1px solid var(--color-border);
+  margin: 1rem 0;
+}
