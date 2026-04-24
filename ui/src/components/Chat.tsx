@@ -8,6 +8,8 @@ interface Props {
   notifications: WsNotification[];
 }
 
+
+
 const SYSTEM_MESSAGES: Record<string, (n: WsNotification) => string> = {
   task_completed: (n) =>
     `✓ Tarea ${n.task_id} completada — ${n.data?.measurements ?? "?"} mediciones`,
@@ -30,23 +32,6 @@ function getResponseMessage(response: unknown): string {
     typeof (response as { message?: unknown }).message === "string"
   ) {
     return (response as { message: string }).message;
-  }
-
-  return String(response);
-}
-
-function extractAssistantText(response: unknown): string {
-  if (typeof response === "string") {
-    return response;
-  }
-
-  if (
-    typeof response === "object" &&
-    response !== null &&
-    "message" in response &&
-    typeof response.message === "string"
-  ) {
-    return response.message;
   }
 
   return String(response);
@@ -109,13 +94,13 @@ export default function Chat({ notifications }: Props) {
       const response = await sendMessage(text);
       const assistantText = getResponseMessage(response);
 
-      // Mensaje assistant
       setMessages((prev) => [
         ...prev,
         {
           role: "assistant",
           content: assistantText,
           ts: new Date(),
+          plotFile: response.plot_file ?? null,
         },
       ]);
     } catch (err) {
@@ -141,6 +126,24 @@ export default function Chat({ notifications }: Props) {
       void handleSend();
     }
   };
+
+  const resizeInput = () => {
+    const textarea = inputRef.current;
+    if (!textarea) return;
+
+    textarea.style.height = "auto";
+
+    const maxHeight = 160;
+    const nextHeight = Math.min(textarea.scrollHeight, maxHeight);
+
+    textarea.style.height = `${nextHeight}px`;
+    textarea.style.overflowY =
+      textarea.scrollHeight > maxHeight ? "auto" : "hidden";
+  };
+
+  useEffect(() => {
+    resizeInput();
+  }, [input]);
 
   return (
     <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-bg)]">
@@ -190,14 +193,16 @@ export default function Chat({ notifications }: Props) {
             <textarea
               ref={inputRef}
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(e) => {
+                setInput(e.target.value);
+              }}
               onKeyDown={handleKeyDown}
               placeholder="Escribe un comando o una consulta..."
               rows={1}
               disabled={loading}
               className="
-                min-h-[28px] max-h-40 flex-1 resize-none
-                bg-transparent px-0 py-0
+                max-h-40 min-h-[28px] flex-1 resize-none
+                overflow-hidden bg-transparent px-0 py-0
                 text-[15px] leading-relaxed text-[var(--color-text)]
                 outline-none
                 placeholder:text-[var(--color-text-muted)]

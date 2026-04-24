@@ -191,6 +191,7 @@ class TaskSummary(BaseModel):
 class ChatResponse(BaseModel):
     message: str
     task: TaskSummary | None = None
+    plot_file: str | None = None
 
 
 class CancelResponse(BaseModel):
@@ -215,13 +216,14 @@ async def chat(request: ChatRequest) -> ChatResponse:
     if isinstance(result, dict):
         task_data = result.get("task")
         task = TaskSummary(**task_data) if task_data else None
+
         return ChatResponse(
             message=result.get("message", ""),
             task=task,
+            plot_file=result.get("plot_file"),
         )
 
     return ChatResponse(message=str(result))
-
 
 @app.get("/tasks", response_model=list[TaskSummary])
 async def list_active_tasks() -> list[TaskSummary]:

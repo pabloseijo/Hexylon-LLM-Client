@@ -18,6 +18,7 @@ export interface TaskSummary {
 export interface ChatResponse {
   message: string;
   task?: TaskSummary | null;
+  plot_file?: string | null;
 }
 
 export interface CancelResponse {
@@ -36,4 +37,5 @@ export interface Message {
   role: "user" | "assistant" | "system";
   content: string;
   ts: Date;
+  plotFile?: string | null;
 }

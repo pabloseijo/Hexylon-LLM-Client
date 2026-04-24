@@ -57,7 +57,7 @@
 
   /* Radios */
   --radius-sm: 4px;
-  --radius-md: 6px;
+  --radius-md: 28px;
   --radius-lg: 8px;
 }
 
@@ -307,4 +307,8 @@ body {
   border: none;
   border-top: 1px solid var(--color-border);
   margin: 1rem 0;
+}
+
+.markdown-answer + div {
+  margin-top: 8px;
 }

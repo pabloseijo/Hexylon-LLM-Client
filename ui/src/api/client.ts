@@ -9,11 +9,10 @@ export async function sendMessage(message: string): Promise<ChatResponse> {
     body: JSON.stringify({ message }),
   });
 
-  if (!res.ok) {
-    throw new Error(`HTTP ${res.status}`);
-  }
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
-  return res.json();
+  const data: ChatResponse = await res.json();
+  return data;
 }
 
 export async function getActiveTasks(): Promise<TaskSummary[]> {

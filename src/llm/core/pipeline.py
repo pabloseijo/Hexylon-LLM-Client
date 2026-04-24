@@ -13,7 +13,7 @@ from llm.tasks.task_analyzer import analyze_csv
 from llm.tasks.task_executor import cancel_task, get_active_tasks, launch_task
 from llm.tasks.task_models import TaskResult, TaskStatus
 from llm.tasks.task_planner import try_plan_task
-
+from llm.tasks.task_plotter import generate_task_plot
 
 # ---------------------------------------------------------------------------
 # Prompts del sistema
@@ -272,6 +272,25 @@ ANALYSIS_MARKERS = (
     "degrado",
 )
 
+PLOT_MARKERS = (
+    "grafica",
+    "gráfica",
+    "graficar",
+    "grafícame",
+    "graficame",
+    "hacerme la grafica",
+    "hacerme la gráfica",
+    "hazme la grafica",
+    "hazme la gráfica",
+    "plot",
+    "curva",
+    "evolución",
+    "evolucion",
+    "muéstrame la gráfica",
+    "muestrame la grafica",
+    "enséñame la gráfica",
+    "enseñame la grafica",
+)
 
 # ---------------------------------------------------------------------------
 # Detección de intención
@@ -296,6 +315,9 @@ def detect_session_question_intent(user_input: str) -> bool:
     text = user_input.lower()
     return any(marker in text for marker in SESSION_QUESTION_MARKERS)
 
+def detect_plot_intent(user_input: str) -> bool:
+    text = user_input.lower()
+    return any(marker in text for marker in PLOT_MARKERS)
 
 def _contains_task_reference(user_input: str) -> bool:
     """
@@ -321,24 +343,33 @@ def _contains_task_reference(user_input: str) -> bool:
     return False
 
 
+def _has_analysis_context() -> bool:
+    state = session_memory.get_state()
+    if state.last_output_file:
+        return True
+
+    for entry in task_history.get_last(50):
+        if entry.get("status") == "completed" and entry.get("output_file"):
+            return True
+
+    return False
+
+
 def detect_analysis_intent(user_input: str) -> bool:
     text = user_input.lower()
 
-    # 1. Si parece una tarea → NUNCA es análisis
     if detect_task_intent(user_input):
         return False
 
-    # 2. Debe haber referencia a tarea o contexto previo
     has_task_reference = _contains_task_reference(user_input)
+    has_context = _has_analysis_context()
 
-    # 3. Debe haber lenguaje de análisis
     has_analysis_language = any(marker in text for marker in ANALYSIS_MARKERS)
+    has_plot_language = detect_plot_intent(user_input)
 
-    # 4. Debe haber contexto real de medición
-    state = session_memory.get_state()
-    has_context = bool(state.last_output_file)
-
-    if has_analysis_language and (has_task_reference or has_context):
+    if (has_analysis_language or has_plot_language) and (
+        has_task_reference or has_context
+    ):
         return True
 
     return False
@@ -821,10 +852,14 @@ def _handle_session_question(user_input: str) -> str:
     return ask_llm(messages).strip()
 
 
-def _handle_analysis(user_input: str) -> str:
+def _handle_analysis(user_input: str) -> dict[str, Any] | str:
     csv_path, task_id_or_error = _resolve_csv_for_analysis(user_input)
     if csv_path is None:
         return task_id_or_error
+
+    metric_filter = _extract_metric_for_analysis(user_input)
+    plot_requested = detect_plot_intent(user_input)
+    plot_file: str | None = None
 
     try:
         analysis = analyze_csv(csv_path, task_id=task_id_or_error or "")
@@ -833,12 +868,26 @@ def _handle_analysis(user_input: str) -> str:
     except ValueError as exc:
         return f"No he podido leer el CSV: {exc}"
 
-    metric_filter = _extract_metric_for_analysis(user_input)
-    metric_hint = (
-        f"\nMétrica solicitada por el usuario: {metric_filter}"
-        if metric_filter
-        else ""
-    )
+    print("PLOT_REQUESTED:", plot_requested)
+    print("CSV_PATH:", csv_path)
+    print("METRIC_FILTER:", metric_filter)
+
+    if plot_requested:
+        try:
+            plot_file = generate_task_plot(
+                csv_path,
+                requested_metric=metric_filter,
+            )
+            print("PLOT_FILE:", plot_file)
+        except Exception as exc:
+            print("ERROR_GENERANDO_GRAFICA:", repr(exc))
+            plot_file = None
+
+        metric_hint = (
+            f"\nMétrica solicitada por el usuario: {metric_filter}"
+            if metric_filter
+            else ""
+        )
 
     messages = conversation_history.build_messages(
         system_prompt=ANALYSIS_INTERPRETER_PROMPT,
@@ -849,8 +898,12 @@ def _handle_analysis(user_input: str) -> str:
             f"{metric_hint}"
         ),
     )
-    return ask_llm(messages).strip()
+    message = ask_llm(messages).strip()
 
+    return {
+        "message": message,
+        "plot_file": plot_file,
+    }
 
 # ---------------------------------------------------------------------------
 # Pipeline principal
@@ -862,6 +915,11 @@ def run_pipeline(user_input: str) -> dict[str, Any] | str:
 
     if detect_analysis_intent(normalized):
         response = _handle_analysis(user_input)
+
+        if isinstance(response, dict):
+            conversation_history.add_assistant_message(response["message"])
+            return response
+
         conversation_history.add_assistant_message(response)
         return response
 

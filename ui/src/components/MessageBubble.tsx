@@ -8,7 +8,7 @@ interface Props {
 }
 
 export default function MessageBubble({ message }: Props) {
-  const { role, content, ts } = message;
+  const { role, content, ts, plotFile } = message;
 
   const date = ts instanceof Date ? ts : new Date(ts);
 
@@ -70,6 +70,34 @@ export default function MessageBubble({ message }: Props) {
             <ReactMarkdown remarkPlugins={[remarkGfm]}>
               {animatedContent}
             </ReactMarkdown>
+
+            {plotFile && (
+              <div className="flex w-full">
+                <div className="mx-auto w-full max-w-[1080px]">
+                  <div className="mt-3 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-card)] p-3">
+                    <img
+                      src={`http://127.0.0.1:8001/download?file=${encodeURIComponent(plotFile)}`}
+                      alt="Gráfica de la tarea"
+                      className="w-full rounded-[var(--radius-sm)]"
+                    />
+
+                    <div className="mt-2 text-[11px] text-[var(--color-text-muted)]">
+                      Gráfica generada a partir del CSV de la tarea
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {!plotFile && role === "assistant" && content.includes("## Resumen") && (
+              <div className="flex w-full">
+                <div className="mx-auto w-full max-w-[1080px]">
+                  <div className="mt-3 text-[11px] text-[var(--color-text-muted)]">
+                    No se ha podido generar la gráfica para esta medición.
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
         </div>
