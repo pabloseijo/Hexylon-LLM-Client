@@ -898,7 +898,22 @@ def _handle_analysis(user_input: str) -> dict[str, Any] | str:
             f"{metric_hint}"
         ),
     )
-    message = ask_llm(messages).strip()
+    
+    try:
+        message = ask_llm(messages).strip()
+    except Exception as exc:
+        print("ERROR_ANALISIS_LLM:", repr(exc))
+        message = (
+            "## Resumen\n\n"
+            "- El análisis estadístico del CSV se ha calculado correctamente.\n"
+            "- No se ha podido completar la interpretación mediante LLM por timeout o error de comunicación.\n\n"
+            "## Valores clave\n\n"
+            f"{analysis.summary_text}\n\n"
+            "## Análisis\n\n"
+            "- La gráfica, si se ha generado correctamente, se adjunta debajo de esta respuesta.\n\n"
+            "## Conclusión\n\n"
+            "- La respuesta se ha generado en modo determinista para evitar interrumpir el flujo del sistema."
+        )
 
     return {
         "message": message,

@@ -3,6 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Iterable
 
+import matplotlib
+matplotlib.use("Agg")
+
 import matplotlib.pyplot as plt
 import pandas as pd
 import re 
@@ -163,8 +166,9 @@ def generate_task_plot(
     output_dir = path.parent / "plots"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    output_file = output_dir / f"{path.stem}_{metric_col.lower()}.png"
-
+    safe_metric = _normalize_metric_name(metric_col).lower()
+    output_file = output_dir / f"{path.stem}_{safe_metric}.png"
+    
     fig = plt.figure(figsize=(10, 4.5))
     ax = fig.add_subplot(111)
 

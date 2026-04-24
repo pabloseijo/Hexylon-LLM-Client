@@ -47,7 +47,7 @@ export default function App() {
     try {
       const [activeTasks, historyTasks] = await Promise.all([
         getActiveTasks(),
-        getTaskHistory(20),
+        getTaskHistory(100),
       ]);
 
       let next: TaskSummary[] = [];
@@ -95,15 +95,12 @@ export default function App() {
       return;
     }
 
-    if (
-      ["task_completed", "task_failed", "task_cancelled"].includes(last.type) &&
-      isTaskSummary(last.data)
-    ) {
+    if (["task_completed", "task_failed", "task_cancelled"].includes(last.type)) {
       queueMicrotask(() => {
-        setTasks((prev) => upsertTask(prev, last.data));
+        void syncTasks();
       });
     }
-  }, [notifications]);
+  }, [notifications, syncTasks]);
 
   const handleClearHistory = async () => {
     try {

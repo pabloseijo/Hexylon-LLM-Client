@@ -2,25 +2,26 @@ import type { ChatResponse, CancelResponse, TaskSummary } from "../types";
 
 const BASE = "http://127.0.0.1:8001";
 
-export async function sendMessage(message: string): Promise<ChatResponse> {
+export async function sendMessage(
+  message: string,
+  options?: { signal?: AbortSignal },
+): Promise<ChatResponse> {
   const res = await fetch(`${BASE}/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ message }),
+    signal: options?.signal,
   });
 
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
-  const data: ChatResponse = await res.json();
-  return data;
+  return res.json();
 }
 
 export async function getActiveTasks(): Promise<TaskSummary[]> {
   const res = await fetch(`${BASE}/tasks`);
 
-  if (!res.ok) {
-    throw new Error(`HTTP ${res.status}`);
-  }
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
   return res.json();
 }
@@ -28,9 +29,7 @@ export async function getActiveTasks(): Promise<TaskSummary[]> {
 export async function getTaskHistory(n = 20): Promise<TaskSummary[]> {
   const res = await fetch(`${BASE}/tasks/history?n=${n}`);
 
-  if (!res.ok) {
-    throw new Error(`HTTP ${res.status}`);
-  }
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
   return res.json();
 }
@@ -40,9 +39,7 @@ export async function cancelTask(taskId: string): Promise<CancelResponse> {
     method: "DELETE",
   });
 
-  if (!res.ok) {
-    throw new Error(`HTTP ${res.status}`);
-  }
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
   return res.json();
 }
@@ -52,7 +49,5 @@ export async function clearTaskHistory(): Promise<void> {
     method: "DELETE",
   });
 
-  if (!res.ok) {
-    throw new Error(`HTTP ${res.status}`);
-  }
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
 }

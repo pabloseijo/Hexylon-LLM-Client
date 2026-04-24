@@ -53,7 +53,7 @@ function TaskCard({ task, onCancelled }: TaskCardProps) {
     statusConfig.active;
 
   return (
-    <div className="animate-slide-in flex flex-col gap-2 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-card)] p-3">
+    <div className="animate-slide-in flex flex-col gap-2 rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-card)] p-3">
       
       {/* Header */}
       <div className="flex items-center justify-between gap-2">
@@ -134,8 +134,39 @@ export default function TaskPanel({
   // =========================
   // Separación de tareas
   // =========================
-  const activeTasks = tasks.filter((t) => t.status === "active");
-  const finishedTasks = tasks.filter((t) => t.status !== "active");
+  function getTaskTime(task: TaskSummary): number {
+    const raw =
+      task.started_at ??
+      task.finished_at ??
+      task.task_id.replace("task_", "").replace("_", "");
+
+    const parsed = Date.parse(raw);
+
+    if (!Number.isNaN(parsed)) {
+      return parsed;
+    }
+
+    const match = task.task_id.match(/task_(\d{8})_(\d{6})/);
+    if (match) {
+      const [, date, time] = match;
+      return Date.parse(
+        `${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6, 8)}T${time.slice(0, 2)}:${time.slice(2, 4)}:${time.slice(4, 6)}`
+      );
+    }
+
+    return 0;
+  }
+
+const sortByNewest = (a: TaskSummary, b: TaskSummary) =>
+  getTaskTime(b) - getTaskTime(a);
+
+const activeTasks = tasks
+  .filter((t) => t.status === "active")
+  .sort(sortByNewest);
+
+const finishedTasks = tasks
+  .filter((t) => t.status !== "active")
+  .sort(sortByNewest);
 
   return (
     <aside className="flex w-[280px] shrink-0 flex-col overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-panel)]">
@@ -209,7 +240,7 @@ export default function TaskPanel({
             {alerts.slice(-5).map((a, i) => (
               <div
                 key={i}
-                className="flex items-start gap-2 rounded-[var(--radius-md)] border border-[var(--color-accent)] bg-[var(--color-accent-soft)] px-2.5 py-2 text-[11px] text-[var(--color-text-strong)]"
+                className="flex items-start gap-2 rounded-[var(--radius-lg)] border border-[var(--color-accent)] bg-[var(--color-accent-soft)] px-2.5 py-2 text-[11px] text-[var(--color-text-strong)]"
               >
                 <span className="shrink-0 text-[var(--color-warning)]">⚠</span>
                 <span>{String(a.data?.message ?? "")}</span>

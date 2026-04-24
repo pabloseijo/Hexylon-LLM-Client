@@ -8,8 +8,6 @@ interface Props {
   notifications: WsNotification[];
 }
 
-
-
 const SYSTEM_MESSAGES: Record<string, (n: WsNotification) => string> = {
   task_completed: (n) =>
     `✓ Tarea ${n.task_id} completada — ${n.data?.measurements ?? "?"} mediciones`,
@@ -21,9 +19,7 @@ const SYSTEM_MESSAGES: Record<string, (n: WsNotification) => string> = {
 };
 
 function getResponseMessage(response: unknown): string {
-  if (typeof response === "string") {
-    return response;
-  }
+  if (typeof response === "string") return response;
 
   if (
     typeof response === "object" &&
@@ -52,10 +48,13 @@ export default function Chat({ notifications }: Props) {
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  const hasText = input.trim().length > 0;
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, loading]);
 
   useEffect(() => {
     if (!notifications.length) return;
@@ -77,56 +76,6 @@ export default function Chat({ notifications }: Props) {
     });
   }, [notifications]);
 
-  const handleSend = async () => {
-    const text = input.trim();
-    if (!text || loading) return;
-
-    setInput("");
-
-    setMessages((prev) => [
-      ...prev,
-      { role: "user", content: text, ts: new Date() },
-    ]);
-
-    setLoading(true);
-
-    try {
-      const response = await sendMessage(text);
-      const assistantText = getResponseMessage(response);
-
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: assistantText,
-          ts: new Date(),
-          plotFile: response.plot_file ?? null,
-        },
-      ]);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Error desconocido";
-
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "system",
-          content: `Error de conexión: ${msg}`,
-          ts: new Date(),
-        },
-      ]);
-    } finally {
-      setLoading(false);
-      inputRef.current?.focus();
-    }
-  };
-
-  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      void handleSend();
-    }
-  };
-
   const resizeInput = () => {
     const textarea = inputRef.current;
     if (!textarea) return;
@@ -144,6 +93,78 @@ export default function Chat({ notifications }: Props) {
   useEffect(() => {
     resizeInput();
   }, [input]);
+
+  const handleAbort = () => {
+    abortRef.current?.abort();
+  };
+
+  const handleSend = async () => {
+    const text = input.trim();
+    if (!text || loading) return;
+
+    setInput("");
+
+    setMessages((prev) => [
+      ...prev,
+      { role: "user", content: text, ts: new Date() },
+    ]);
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    setLoading(true);
+
+    try {
+      const response = await sendMessage(text, {
+        signal: controller.signal,
+      });
+
+      const assistantText = getResponseMessage(response);
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: assistantText,
+          ts: new Date(),
+          plotFile: response.plot_file ?? null,
+        },
+      ]);
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "system",
+            content: "Generación interrumpida por el usuario.",
+            ts: new Date(),
+          },
+        ]);
+      } else {
+        const msg = err instanceof Error ? err.message : "Error desconocido";
+
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "system",
+            content: `Error de conexión: ${msg}`,
+            ts: new Date(),
+          },
+        ]);
+      }
+    } finally {
+      setLoading(false);
+      abortRef.current = null;
+      inputRef.current?.focus();
+    }
+  };
+
+  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      void handleSend();
+    }
+  };
 
   return (
     <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-bg)]">
@@ -178,24 +199,13 @@ export default function Chat({ notifications }: Props) {
         </div>
       </div>
 
-      <div className="shrink-0 px-6 pb-2 pt-3 bg-[var(--color-bg)]">
+      <div className="shrink-0 bg-[var(--color-bg)] px-6 pb-2 pt-3">
         <div className="mx-auto w-full max-w-[1080px]">
-          <div
-            className="
-              flex items-end gap-3
-              rounded-[28px]
-              border border-[var(--color-border)]
-              bg-[var(--color-panel)]
-              px-5 py-4
-              shadow-[0_6px_24px_rgba(0,0,0,0.06)]
-            "
-          >
+          <div className="flex items-end gap-3 rounded-[28px] border border-[var(--color-border)] bg-[var(--color-panel)] px-5 py-4 shadow-[0_6px_24px_rgba(0,0,0,0.06)]">
             <textarea
               ref={inputRef}
               value={input}
-              onChange={(e) => {
-                setInput(e.target.value);
-              }}
+              onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Escribe un comando o una consulta..."
               rows={1}
@@ -211,37 +221,52 @@ export default function Chat({ notifications }: Props) {
             />
 
             <button
-              onClick={() => void handleSend()}
-              disabled={loading || !input.trim()}
-              className="
+              type="button"
+              onClick={() => {
+                if (loading) {
+                  handleAbort();
+                  return;
+                }
+
+                void handleSend();
+              }}
+              disabled={!loading && !hasText}
+              className={`
                 flex h-8 w-8 shrink-0 items-center justify-center
                 rounded-full
-                bg-[var(--color-accent)]
-                text-[var(--color-text-inverse)]
-                transition-all
-                hover:opacity-90
-                disabled:cursor-not-allowed disabled:opacity-35
-              "
+                transition-all duration-200
+
+                ${
+                  loading
+                    ? "cursor-pointer bg-[var(--color-text-muted)] text-white hover:opacity-90"
+                    : hasText
+                      ? "cursor-pointer bg-[var(--color-accent)] text-[var(--color-text-inverse)] hover:opacity-90"
+                      : "cursor-not-allowed bg-[var(--color-accent)] text-[var(--color-text-inverse)] opacity-35"
+                }
+              `}
+              aria-label={loading ? "Interrumpir generación" : "Enviar mensaje"}
             >
-              <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
-                <path
-                  d="M2 8L14 2L8 14L7 9L2 8Z"
-                  stroke="currentColor"
-                  strokeWidth="1.6"
-                  strokeLinejoin="round"
-                />
-              </svg>
+              {loading ? (
+                <div className="h-3 w-3 rounded-[2px] bg-white" />
+              ) : (
+                <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
+                  <path
+                    d="M2 8L14 2L8 14L7 9L2 8Z"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              )}
             </button>
           </div>
         </div>
 
-        {/* Footer */}
         <div className="mt-2 text-center">
           <p className="text-[11px] text-[var(--color-text-muted)]">
             El sistema puede cometer errores. Verifica siempre la información crítica antes de utilizarla.
           </p>
         </div>
-
       </div>
     </div>
   );
