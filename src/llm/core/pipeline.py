@@ -15,6 +15,7 @@ from llm.tasks.task_models import TaskResult, TaskStatus
 from llm.tasks.task_planner import try_plan_task
 from llm.tasks.task_plotter import generate_task_plot
 from llm.tasks.task_chart_data import build_task_chart_data
+from llm.parsing.main_parser import parse_input
 from llm.parsing.plot_request_parser import (
     contains_task_reference,
     detect_plot_intent,
@@ -156,230 +157,6 @@ Plantilla orientativa:
 ## Interpretación
 - ...
 """.strip()
-
-
-
-
-# ---------------------------------------------------------------------------
-# Marcadores de intención
-# ---------------------------------------------------------------------------
-
-TASK_MARKERS = (
-    "cada ",
-    "durante ",
-    "cada minuto",
-    "cada hora",
-    "cada segundo",
-    "mídeme durante",
-    "mideme durante",
-    "registra durante",
-    "monitoriza durante",
-    "monitorea durante",
-    "mide durante",
-    "mide cada",
-    "registra cada",
-    "monitoriza cada",
-    "monitorea cada",
-    "captura cada",
-    "guarda cada",
-    "durante las próximas",
-    "durante los próximos",
-    "durante las proximas",
-    "durante los proximos",
-)
-
-CANCEL_MARKERS = (
-    "cancela la tarea",
-    "cancela tarea",
-    "cancelar la tarea",
-    "cancelar tarea",
-    "para la tarea",
-    "parar la tarea",
-    "detén la tarea",
-    "deten la tarea",
-    "detener la tarea",
-    "detén la medición",
-    "deten la medicion",
-    "detener la medición",
-    "detener la medicion",
-    "para la medición",
-    "para la medicion",
-    "cancela la medición",
-    "cancela la medicion",
-    "cancel task",
-    "stop task",
-    "cancela todo",
-    "para todo",
-)
-
-LIST_TASKS_MARKERS = (
-    "tareas activas",
-    "qué tareas hay",
-    "que tareas hay",
-    "tareas en curso",
-    "qué está midiendo",
-    "que esta midiendo",
-    "hay alguna tarea",
-    "tareas corriendo",
-    "mediciones activas",
-    "mediciones en curso",
-)
-
-SESSION_QUESTION_MARKERS = (
-    "qué estamos haciendo",
-    "que estamos haciendo",
-    "en qué punto estamos",
-    "en que punto estamos",
-    "qué hicimos",
-    "que hicimos",
-    "qué acabas de hacer",
-    "que acabas de hacer",
-    "resume la sesión",
-    "resume la sesion",
-    "resumen de la sesión",
-    "resumen de la sesion",
-    "qué ha pasado",
-    "que ha pasado",
-    "historial de tareas",
-    "qué tareas hemos ejecutado",
-    "que tareas hemos ejecutado",
-    "qué hemos medido",
-    "que hemos medido",
-    "cuál es el estado",
-    "cual es el estado",
-    "en qué fase estamos",
-    "en que fase estamos",
-)
-
-ANALYSIS_MARKERS = (
-    "analiza",
-    "análisis",
-    "analisis",
-    "resume",
-    "resumen",
-    "resultados",
-    "medición",
-    "medicion",
-    "csv",
-    "evolución",
-    "evolucion",
-    "tendencia",
-    "comportamiento",
-    "valores",
-    "cómo salió",
-    "como salio",
-    "cómo fue",
-    "como fue",
-    "qué pasó",
-    "que paso",
-    "qué midió",
-    "que midio",
-    "degradación",
-    "degradacion",
-    "degradó",
-    "degrado",
-)
-
-# ---------------------------------------------------------------------------
-# Detección de intención
-# ---------------------------------------------------------------------------
-
-def detect_task_intent(user_input: str) -> bool:
-    text = user_input.lower()
-    return any(marker in text for marker in TASK_MARKERS)
-
-
-def detect_cancel_intent(user_input: str) -> bool:
-    text = user_input.lower()
-    return any(marker in text for marker in CANCEL_MARKERS)
-
-
-def detect_list_tasks_intent(user_input: str) -> bool:
-    text = user_input.lower()
-    return any(marker in text for marker in LIST_TASKS_MARKERS)
-
-
-def detect_session_question_intent(user_input: str) -> bool:
-    text = user_input.lower()
-    return any(marker in text for marker in SESSION_QUESTION_MARKERS)
-
-
-
-def _has_analysis_context() -> bool:
-    state = session_memory.get_state()
-    if state.last_output_file:
-        return True
-
-    for entry in task_history.get_last(50):
-        if entry.get("status") == "completed" and entry.get("output_file"):
-            return True
-
-    return False
-
-
-def detect_analysis_intent(user_input: str) -> bool:
-    text = user_input.lower()
-
-    if detect_task_intent(user_input):
-        return False
-
-    has_task_reference = contains_task_reference(user_input)
-    has_context = _has_analysis_context()
-
-    has_analysis_language = any(marker in text for marker in ANALYSIS_MARKERS)
-    has_plot_language = detect_plot_intent(user_input)
-
-    if (has_analysis_language or has_plot_language) and (
-        has_task_reference or has_context
-    ):
-        return True
-
-    return False
-# ---------------------------------------------------------------------------
-# Normalización de prefijos conversacionales
-# ---------------------------------------------------------------------------
-
-def _strip_conversational_prefix(user_input: str) -> str:
-    """
-    Elimina prefijos conversacionales que rompen la detección de intención.
-
-    Ejemplos:
-    - "y eso es un valor alto?"  →  "eso es un valor alto?"
-    - "y que comandos hay?"      →  "que comandos hay?"
-    - "pero como funciona?"      →  "como funciona?"
-    - "entonces dame la freq"    →  "dame la freq"
-    """
-    prefixes = (
-        "y eso ",
-        "y eso,",
-        "y que ",
-        "y qué ",
-        "y como ",
-        "y cómo ",
-        "y cual ",
-        "y cuál ",
-        "pero ",
-        "entonces ",
-        "oye, ",
-        "oye ",
-        "bueno, ",
-        "bueno ",
-        "vale, ",
-        "vale ",
-        "y ",
-    )
-    text = user_input.strip()
-    lower = text.lower()
-
-    for prefix in prefixes:
-        if lower.startswith(prefix):
-            stripped = text[len(prefix):].strip()
-            if stripped and stripped[0].islower():
-                stripped = stripped[0].upper() + stripped[1:]
-            return stripped
-
-    return text
-
 
 # ---------------------------------------------------------------------------
 # Utilidades de resolución de tareas
@@ -843,9 +620,11 @@ def _handle_analysis(user_input: str) -> dict[str, Any] | str:
 
 def run_pipeline(user_input: str) -> dict[str, Any] | str:
     conversation_history.add_user_message(user_input)
-    normalized = _strip_conversational_prefix(user_input)
 
-    if detect_analysis_intent(normalized):
+    parsed = parse_input(user_input)
+    normalized = parsed.normalized_input
+
+    if parsed.intent in ("analysis", "plot"):
         response = _handle_analysis(user_input)
 
         if isinstance(response, dict):
@@ -855,22 +634,22 @@ def run_pipeline(user_input: str) -> dict[str, Any] | str:
         conversation_history.add_assistant_message(response)
         return response
 
-    if detect_session_question_intent(normalized):
+    if parsed.intent == "session_question":
         response = _handle_session_question(user_input)
         conversation_history.add_assistant_message(response)
         return response
 
-    if detect_cancel_intent(normalized):
+    if parsed.intent == "cancel_task":
         response = _handle_cancel_task(user_input)
         conversation_history.add_assistant_message(response)
         return response
 
-    if detect_list_tasks_intent(normalized):
+    if parsed.intent == "list_tasks":
         response = _handle_list_tasks()
         conversation_history.add_assistant_message(response)
         return response
 
-    if detect_task_intent(normalized):
+    if parsed.intent == "launch_task":
         response = _handle_launch_task(user_input)
 
         if isinstance(response, dict):
