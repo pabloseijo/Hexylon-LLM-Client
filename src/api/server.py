@@ -192,6 +192,7 @@ class ChatResponse(BaseModel):
     message: str
     task: TaskSummary | None = None
     plot_file: str | None = None
+    chart_data: dict[str, Any] | None = None
 
 
 class CancelResponse(BaseModel):
@@ -221,6 +222,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
             message=result.get("message", ""),
             task=task,
             plot_file=result.get("plot_file"),
+            chart_data=result.get("chart_data"),
         )
 
     return ChatResponse(message=str(result))

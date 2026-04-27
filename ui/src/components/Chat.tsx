@@ -128,6 +128,7 @@ export default function Chat({ notifications }: Props) {
           content: assistantText,
           ts: new Date(),
           plotFile: response.plot_file ?? null,
+          chartData: response.chart_data ?? null, // NUEVO
         },
       ]);
     } catch (err) {

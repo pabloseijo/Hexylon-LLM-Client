@@ -14,6 +14,7 @@ from llm.tasks.task_executor import cancel_task, get_active_tasks, launch_task
 from llm.tasks.task_models import TaskResult, TaskStatus
 from llm.tasks.task_planner import try_plan_task
 from llm.tasks.task_plotter import generate_task_plot
+from llm.tasks.task_chart_data import build_task_chart_data
 
 # ---------------------------------------------------------------------------
 # Prompts del sistema
@@ -859,7 +860,9 @@ def _handle_analysis(user_input: str) -> dict[str, Any] | str:
 
     metric_filter = _extract_metric_for_analysis(user_input)
     plot_requested = detect_plot_intent(user_input)
+
     plot_file: str | None = None
+    chart_data: dict[str, Any] | None = None
 
     try:
         analysis = analyze_csv(csv_path, task_id=task_id_or_error or "")
@@ -868,26 +871,27 @@ def _handle_analysis(user_input: str) -> dict[str, Any] | str:
     except ValueError as exc:
         return f"No he podido leer el CSV: {exc}"
 
-    print("PLOT_REQUESTED:", plot_requested)
-    print("CSV_PATH:", csv_path)
-    print("METRIC_FILTER:", metric_filter)
-
+    # =========================
+    # NUEVO: datos para gráfica interactiva
+    # =========================
     if plot_requested:
+        try:
+            chart_data = build_task_chart_data(
+                csv_path,
+                requested_metric=metric_filter,
+            )
+        except Exception as e:
+            print("ERROR_CHART_DATA:", repr(e))
+            chart_data = None
+
+        # Mantienes PNG como fallback (opcional)
         try:
             plot_file = generate_task_plot(
                 csv_path,
                 requested_metric=metric_filter,
             )
-            print("PLOT_FILE:", plot_file)
-        except Exception as exc:
-            print("ERROR_GENERANDO_GRAFICA:", repr(exc))
+        except Exception:
             plot_file = None
-
-        metric_hint = (
-            f"\nMétrica solicitada por el usuario: {metric_filter}"
-            if metric_filter
-            else ""
-        )
 
     messages = conversation_history.build_messages(
         system_prompt=ANALYSIS_INTERPRETER_PROMPT,
@@ -895,31 +899,30 @@ def _handle_analysis(user_input: str) -> dict[str, Any] | str:
             f"Tarea analizada: {task_id_or_error or 'desconocida'}\n"
             f"Fichero CSV: {csv_path}\n"
             f"Análisis calculado:\n{analysis.summary_text}"
-            f"{metric_hint}"
         ),
     )
-    
+
     try:
         message = ask_llm(messages).strip()
     except Exception as exc:
         print("ERROR_ANALISIS_LLM:", repr(exc))
         message = (
             "## Resumen\n\n"
-            "- El análisis estadístico del CSV se ha calculado correctamente.\n"
-            "- No se ha podido completar la interpretación mediante LLM por timeout o error de comunicación.\n\n"
+            "- El CSV se ha localizado y el análisis determinista se ha calculado correctamente.\n"
+            "- No se ha podido completar la interpretación mediante LLM por timeout de Ollama.\n\n"
             "## Valores clave\n\n"
             f"{analysis.summary_text}\n\n"
             "## Análisis\n\n"
-            "- La gráfica, si se ha generado correctamente, se adjunta debajo de esta respuesta.\n\n"
+            "- La gráfica interactiva se adjunta debajo de esta respuesta si los datos se han generado correctamente.\n\n"
             "## Conclusión\n\n"
-            "- La respuesta se ha generado en modo determinista para evitar interrumpir el flujo del sistema."
+            "- El sistema ha devuelto una respuesta de respaldo para evitar un error 500."
         )
 
     return {
         "message": message,
-        "plot_file": plot_file,
+        "plot_file": plot_file,      
+        "chart_data": chart_data,    
     }
-
 # ---------------------------------------------------------------------------
 # Pipeline principal
 # ---------------------------------------------------------------------------

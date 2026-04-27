@@ -19,6 +19,7 @@ export interface ChatResponse {
   message: string;
   task?: TaskSummary | null;
   plot_file?: string | null;
+  chart_data?: ChartData | null;
 }
 
 export interface CancelResponse {
@@ -38,4 +39,25 @@ export interface Message {
   content: string;
   ts: Date;
   plotFile?: string | null;
+  chartData?: ChartData | null; 
+}
+
+export interface ChartPoint {
+  x: string;
+  y: number;
+}
+
+export interface SingleChartData {
+  metric: string;
+  metric_column?: string;
+  unit?: string | null;
+  x_label: string;
+  y_label: string;
+  points: ChartPoint[];
+  source_file?: string;
+}
+
+export interface ChartData {
+  charts: SingleChartData[];
+  source_file?: string;
 }
