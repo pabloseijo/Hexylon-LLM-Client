@@ -15,6 +15,13 @@ from llm.tasks.task_models import TaskResult, TaskStatus
 from llm.tasks.task_planner import try_plan_task
 from llm.tasks.task_plotter import generate_task_plot
 from llm.tasks.task_chart_data import build_task_chart_data
+from llm.parsing.plot_request_parser import (
+    contains_task_reference,
+    detect_plot_intent,
+    extract_metric,
+    extract_task_reference,
+    normalize_task_reference,
+)
 
 # ---------------------------------------------------------------------------
 # Prompts del sistema
@@ -273,26 +280,6 @@ ANALYSIS_MARKERS = (
     "degrado",
 )
 
-PLOT_MARKERS = (
-    "grafica",
-    "gráfica",
-    "graficar",
-    "grafícame",
-    "graficame",
-    "hacerme la grafica",
-    "hacerme la gráfica",
-    "hazme la grafica",
-    "hazme la gráfica",
-    "plot",
-    "curva",
-    "evolución",
-    "evolucion",
-    "muéstrame la gráfica",
-    "muestrame la grafica",
-    "enséñame la gráfica",
-    "enseñame la grafica",
-)
-
 # ---------------------------------------------------------------------------
 # Detección de intención
 # ---------------------------------------------------------------------------
@@ -316,32 +303,6 @@ def detect_session_question_intent(user_input: str) -> bool:
     text = user_input.lower()
     return any(marker in text for marker in SESSION_QUESTION_MARKERS)
 
-def detect_plot_intent(user_input: str) -> bool:
-    text = user_input.lower()
-    return any(marker in text for marker in PLOT_MARKERS)
-
-def _contains_task_reference(user_input: str) -> bool:
-    """
-    Detecta referencias a tareas por:
-    - formato task_YYYY...
-    - identificador temporal sin prefijo (ej. 20260422_103155)
-    - mención explícita de la palabra 'tarea'
-    """
-    text = user_input.lower()
-
-    if "task_" in text:
-        return True
-
-    if "tarea" in text:
-        return True
-
-    if re.search(r"\b20\d{6,8}_\d{6}\b", text):
-        return True
-
-    if re.search(r"\b20\d{10,14}\b", text):
-        return True
-
-    return False
 
 
 def _has_analysis_context() -> bool:
@@ -362,7 +323,7 @@ def detect_analysis_intent(user_input: str) -> bool:
     if detect_task_intent(user_input):
         return False
 
-    has_task_reference = _contains_task_reference(user_input)
+    has_task_reference = contains_task_reference(user_input)
     has_context = _has_analysis_context()
 
     has_analysis_language = any(marker in text for marker in ANALYSIS_MARKERS)
@@ -509,77 +470,14 @@ def _resolve_task_id_for_cancel(user_input: str) -> tuple[str | None, str | None
     )
 
 
-def _normalize_task_reference(raw: str) -> str:
-    """
-    Normaliza referencias de tarea.
-
-    Ejemplos:
-    - 20260422_103155 -> task_20260422_103155
-    - task_20260422_103155 -> task_20260422_103155
-    """
-    raw = raw.strip()
-
-    if raw.startswith("task_"):
-        return raw
-
-    if re.fullmatch(r"20\d{6,8}_\d{6}", raw):
-        return f"task_{raw}"
-
-    return raw
-
-
-def _extract_task_reference_from_text(user_input: str) -> str | None:
-    """
-    Extrae una referencia de tarea del texto si existe.
-    """
-    text = user_input.lower()
-
-    match = re.search(r"\btask_(20\d{6,8}_\d{6})\b", text)
-    if match:
-        return f"task_{match.group(1)}"
-
-    match = re.search(r"\b(20\d{6,8}_\d{6})\b", text)
-    if match:
-        return f"task_{match.group(1)}"
-
-    return None
-
-
-def _extract_metric_for_analysis(user_input: str) -> str | None:
-    """
-    Extrae una métrica explícitamente mencionada para orientar el análisis.
-    """
-    text = user_input.lower()
-    metrics = (
-        "pow",
-        "mer",
-        "cn",
-        "cber",
-        "vber",
-        "preber",
-        "postber",
-        "preldpcber",
-        "prebchber",
-        "lkm",
-        "per",
-        "ser",
-    )
-
-    for metric in metrics:
-        if re.search(rf"\b{metric}\b", text):
-            return metric.upper()
-
-    return None
-
-
 def _resolve_csv_for_analysis(user_input: str) -> tuple[str | None, str | None]:
     text = user_input.lower()
     recent = task_history.get_last(50)
 
     # 1. Referencia explícita a tarea
-    referenced_task_id = _extract_task_reference_from_text(user_input)
+    referenced_task_id = extract_task_reference(user_input)
     if referenced_task_id:
-        normalized_task_id = _normalize_task_reference(referenced_task_id)
+        normalized_task_id = normalize_task_reference(referenced_task_id)
         for entry in recent:
             if entry.get("task_id") == normalized_task_id:
                 csv_path = entry.get("output_file")
@@ -874,7 +772,7 @@ def _handle_analysis(user_input: str) -> dict[str, Any] | str:
     if csv_path is None:
         return task_id_or_error
 
-    metric_filter = _extract_metric_for_analysis(user_input)
+    metric_filter = extract_metric(user_input)
     plot_requested = detect_plot_intent(user_input)
 
     plot_file: str | None = None

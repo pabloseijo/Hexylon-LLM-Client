@@ -119,6 +119,8 @@ export default function Chat({ notifications }: Props) {
         signal: controller.signal,
       });
 
+      console.log("CHAT_RESPONSE:", response);
+
       const assistantText = getResponseMessage(response);
 
       setMessages((prev) => [
