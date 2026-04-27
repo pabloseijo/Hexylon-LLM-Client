@@ -10,10 +10,17 @@ from llm.memory.session_memory import session_memory
 from llm.memory.session_log import EventType, session_log
 from llm.memory.task_history import task_history
 from llm.tasks.task_executor import cancel_task, get_active_tasks, launch_task
+from llm.handlers.knowledge_handler import handle_knowledge
+from llm.handlers.session_handler import handle_session_question
 from llm.tasks.task_models import TaskResult, TaskStatus
 from llm.tasks.task_planner import try_plan_task
 from llm.parsing.main_parser import parse_input
 from llm.handlers.analysis_handler import handle_analysis
+from llm.handlers.task_handler import (
+    handle_launch_task,
+    handle_cancel_task,
+    handle_list_tasks,
+)
 
 # ---------------------------------------------------------------------------
 # Prompts del sistema
@@ -150,95 +157,6 @@ Plantilla orientativa:
 """.strip()
 
 # ---------------------------------------------------------------------------
-# Utilidades de resolución de tareas
-# ---------------------------------------------------------------------------
-
-def _get_sorted_active_tasks() -> list[tuple[str, object]]:
-    active = get_active_tasks()
-    return sorted(active.items(), key=lambda item: item[0])
-
-
-def _extract_explicit_task_id(
-    user_input: str,
-    active_task_ids: list[str],
-) -> str | None:
-    text = user_input.lower()
-    for task_id in active_task_ids:
-        if task_id.lower() in text:
-            return task_id
-    return None
-
-
-def _extract_ordinal_index(user_input: str) -> int | None:
-    text = user_input.lower().strip()
-    patterns = (
-        r"\btarea\s+(\d+)\b",
-        r"\bla\s+tarea\s+(\d+)\b",
-        r"\btask\s+(\d+)\b",
-    )
-    for pattern in patterns:
-        match = re.search(pattern, text)
-        if match:
-            return int(match.group(1))
-    return None
-
-
-def _resolve_task_id_for_cancel(user_input: str) -> tuple[str | None, str | None]:
-    sorted_active = _get_sorted_active_tasks()
-    if not sorted_active:
-        return None, "No hay ninguna tarea activa en este momento."
-
-    active_task_ids = [task_id for task_id, _ in sorted_active]
-    text = user_input.lower().strip()
-
-    explicit_task_id = _extract_explicit_task_id(user_input, active_task_ids)
-    if explicit_task_id is not None:
-        return explicit_task_id, None
-
-    ordinal_index = _extract_ordinal_index(user_input)
-    if ordinal_index is not None:
-        if 1 <= ordinal_index <= len(sorted_active):
-            return sorted_active[ordinal_index - 1][0], None
-        return None, (
-            f"No existe la tarea {ordinal_index}. "
-            f"Actualmente hay {len(sorted_active)} tareas activas."
-        )
-
-    if any(
-        m in text
-        for m in (
-            "cancela la tarea",
-            "cancelar la tarea",
-            "cancela tarea",
-            "cancelar tarea",
-            "para la tarea",
-            "detén la tarea",
-            "deten la tarea",
-        )
-    ):
-        return sorted_active[-1][0], None
-
-    session_state = session_memory.get_state()
-    if session_state.last_task_id and session_state.last_task_id in active_task_ids:
-        return session_state.last_task_id, None
-
-    if len(sorted_active) == 1:
-        return sorted_active[0][0], None
-
-    ids = "\n".join(
-        f"  {idx}. {task_id}"
-        for idx, (task_id, _) in enumerate(sorted_active, start=1)
-    )
-    return None, (
-        "No se ha podido determinar qué tarea cancelar.\n"
-        "Especifica el ID real o una posición, por ejemplo:\n"
-        "  - cancela la tarea 1\n"
-        "  - cancela la tarea task_20260416_110556\n\n"
-        f"Tareas activas:\n{ids}"
-    )
-
-
-# ---------------------------------------------------------------------------
 # Callbacks y handlers
 # ---------------------------------------------------------------------------
 
@@ -248,247 +166,6 @@ def _safe_ask_llm(messages: list[dict[str, str]], fallback: str, context: str) -
     except Exception as exc:
         print(f"ERROR_LLM_{context}:", repr(exc))
         return fallback
-
-
-def _on_task_complete(result: TaskResult) -> None:
-    session_memory.set_last_completed_task(
-        task_id=result.plan.task_id,
-        output_file=result.output_file,
-    )
-    session_memory.clear_last_task_if_matches(result.plan.task_id)
-
-    for alert_message in result.triggered_alerts:
-        session_log.log_task_alert_triggered(
-            task_id=result.plan.task_id,
-            alert_message=alert_message,
-        )
-
-    if result.status == TaskStatus.COMPLETED:
-        if result.stop_reason:
-            session_log.log_task_stop_condition_triggered(
-                task_id=result.plan.task_id,
-                stop_reason=result.stop_reason,
-            )
-
-        session_log.log_task_completed(
-            task_id=result.plan.task_id,
-            description=result.plan.description,
-            output_file=result.output_file or "",
-            measurements=result.total_measurements,
-            stop_reason=result.stop_reason,
-        )
-        task_history.record_completed(
-            task_id=result.plan.task_id,
-            output_file=result.output_file or "",
-            measurements=result.total_measurements,
-            stop_reason=result.stop_reason,
-        )
-
-    elif result.status == TaskStatus.CANCELLED:
-        session_log.log_task_cancelled(result.plan.task_id)
-        task_history.record_cancelled(
-            task_id=result.plan.task_id,
-            measurements=result.total_measurements,
-            stop_reason=result.stop_reason,
-        )
-
-    elif result.status == TaskStatus.FAILED:
-        session_log.log_task_failed(
-            task_id=result.plan.task_id,
-            error=result.error or "error desconocido",
-        )
-        task_history.record_failed(
-            task_id=result.plan.task_id,
-            error=result.error or "error desconocido",
-        )
-
-    completion_notice = (
-        f"[Sistema] La tarea {result.plan.task_id} ha finalizado "
-        f"con estado {result.status.value}. "
-        f"Mediciones: {result.total_measurements}. "
-        f"CSV: {result.output_file or 'no generado'}."
-    )
-
-    if result.stop_reason:
-        completion_notice += f" Motivo de parada: {result.stop_reason}."
-
-    if result.triggered_alerts:
-        alert_lines = " | ".join(
-            alert.summary_line() if hasattr(alert, "summary_line") else str(alert)
-            for alert in result.triggered_alerts
-        )
-        completion_notice += f" Alertas disparadas: {alert_lines}."
-
-    conversation_history.add_assistant_message(completion_notice)
-
-    print("\n")
-    print("=" * 50)
-    print(result.summary())
-    print("=" * 50)
-    print(">>> ", end="", flush=True)
-
-
-def _handle_launch_task(user_input: str) -> dict[str, Any] | str:
-    plan_or_error = try_plan_task(user_input)
-    if isinstance(plan_or_error, str):
-        return plan_or_error
-
-    plan = plan_or_error
-    launch_task(plan, on_complete=_on_task_complete)
-
-    session_memory.set_last_task_id(plan.task_id)
-    session_log.log_task_launched(
-        task_id=plan.task_id,
-        description=plan.description,
-        commands=plan.commands,
-    )
-    task_history.record_launched(
-        task_id=plan.task_id,
-        description=plan.description,
-        commands=plan.commands,
-        interval_seconds=plan.interval_seconds,
-        duration_seconds=plan.duration_seconds,
-        output_file=plan.output_file,
-    )
-
-    commands_text = ", ".join(plan.commands)
-    duration_minutes = int(plan.duration_seconds // 60)
-
-    sections: list[str] = [
-        "## Tarea lanzada",
-        "",
-        f"**{plan.description}**",
-        "",
-        "## Detalles",
-        "",
-        f"- **ID**: `{plan.task_id}`",
-        f"- **Comandos**: `{commands_text}`",
-        f"- **Intervalo**: **{plan.interval_seconds:.1f}s**",
-        f"- **Duración**: **{plan.duration_seconds:.1f}s** ({duration_minutes} min)",
-        f"- **Iteraciones previstas**: **{plan.total_iterations}**",
-        f"- **Salida**: `{plan.output_file}`",
-    ]
-
-    if plan.alert_conditions:
-        sections.extend([
-            "",
-            "## Alertas configuradas",
-            "",
-        ])
-        for condition in plan.alert_conditions:
-            sections.append(f"- {condition}")
-
-    if plan.stop_conditions:
-        sections.extend([
-            "",
-            "## Condiciones de parada automática",
-            "",
-        ])
-        for condition in plan.stop_conditions:
-            sections.append(f"- {condition}")
-
-    sections.extend([
-        "",
-        "## Ejecución",
-        "",
-        "- La tarea se está ejecutando en segundo plano.",
-        "- Puedes seguir usando el chat mientras continúa la medición.",
-        "",
-        "## Cancelación",
-        "",
-        'Puedes cancelarla con cualquiera de estas órdenes:',
-        "",
-        '- `cancela la tarea`',
-        '- `cancela la tarea 1`',
-        f'- `cancela la tarea {plan.task_id}`',
-    ])
-
-    message = "\n".join(sections)
-
-    return {
-        "message": message,
-        "task": {
-            "task_id": plan.task_id,
-            "description": plan.description,
-            "commands": plan.commands,
-            "interval_seconds": plan.interval_seconds,
-            "duration_seconds": plan.duration_seconds,
-            "output_file": plan.output_file,
-            "status": "active",
-        },
-    }
-
-def _handle_cancel_task(user_input: str) -> str:
-    target_id, error = _resolve_task_id_for_cancel(user_input)
-    if error:
-        return error
-
-    cancelled = cancel_task(target_id)
-    if not cancelled:
-        return (
-            f"No se ha podido cancelar la tarea {target_id}. "
-            "Puede que ya haya finalizado."
-        )
-
-    session_memory.clear_last_task_if_matches(target_id)
-    return f"Tarea {target_id} cancelada."
-
-
-def _handle_list_tasks() -> str:
-    sorted_active = _get_sorted_active_tasks()
-    if not sorted_active:
-        return "No hay ninguna tarea activa en este momento."
-
-    lines = [f"Tareas activas: {len(sorted_active)}"]
-    for idx, (task_id, executor) in enumerate(sorted_active, start=1):
-        plan = executor.plan
-        lines.append(
-            f"\n  Tarea #{idx}\n"
-            f"  ID:          {task_id}\n"
-            f"  Descripción: {plan.description}\n"
-            f"  Comandos:    {', '.join(plan.commands)}\n"
-            f"  Intervalo:   {plan.interval_seconds}s\n"
-            f"  Duración:    {plan.duration_seconds}s\n"
-            f"  Salida:      {plan.output_file}"
-        )
-    return "\n".join(lines)
-
-
-def _handle_session_question(user_input: str) -> str:
-    text = user_input.lower()
-
-    session_log.log(
-        EventType.SESSION_QUESTION,
-        f"Pregunta sobre sesión: {user_input[:60]}",
-        data={"user_input": user_input},
-    )
-
-    if any(
-        m in text
-        for m in (
-            "historial",
-            "hemos ejecutado",
-            "hemos medido",
-            "tareas anteriores",
-        )
-    ):
-        context = task_history.build_history_summary()
-    else:
-        context = session_log.build_session_summary()
-
-    messages = conversation_history.build_messages(
-        system_prompt=SESSION_INTERPRETER_PROMPT,
-        extra_user_content=f"Contexto de la sesión:\n{context}",
-    )
-    return _safe_ask_llm(
-        messages,
-        fallback=(
-            "## Estado de sesión\n\n"
-            "- No se ha podido generar una respuesta interpretativa mediante LLM.\n"
-            "- El sistema sigue operativo, pero la explicación conversacional no está disponible temporalmente."
-        ),
-        context="SESSION",
-    )
 
 # ---------------------------------------------------------------------------
 # Pipeline principal
@@ -511,22 +188,22 @@ def run_pipeline(user_input: str) -> dict[str, Any] | str:
         return response
 
     if parsed.intent == "session_question":
-        response = _handle_session_question(user_input)
+        response = handle_session_question(user_input)
         conversation_history.add_assistant_message(response)
         return response
 
     if parsed.intent == "cancel_task":
-        response = _handle_cancel_task(user_input)
+        response = handle_cancel_task(user_input)
         conversation_history.add_assistant_message(response)
         return response
 
     if parsed.intent == "list_tasks":
-        response = _handle_list_tasks()
+        response = handle_list_tasks()
         conversation_history.add_assistant_message(response)
         return response
 
     if parsed.intent == "launch_task":
-        response = _handle_launch_task(user_input)
+        response = handle_launch_task(user_input)
 
         if isinstance(response, dict):
             conversation_history.add_assistant_message(response["message"])
@@ -538,42 +215,7 @@ def run_pipeline(user_input: str) -> dict[str, Any] | str:
     routed_intent = route_intent(normalized)
 
     if routed_intent == "knowledge":
-        session_log.log_knowledge_query(
-            user_input=user_input,
-            query_type="knowledge",
-        )
-
-        from llm.core.scpi_generator import answer_with_knowledge
-        from llm.knowledge.context_builder import build_knowledge_payload
-        from llm.knowledge.query_classifier import classify
-
-        result = classify(normalized)
-
-        if result.query_type in (
-            "exact_command",
-            "metric_definition",
-            "unsupported",
-        ):
-            response = answer_with_knowledge(normalized)
-        else:
-            payload = build_knowledge_payload(normalized, mode="knowledge")
-            messages = conversation_history.build_messages(
-                system_prompt=KNOWLEDGE_SYSTEM_PROMPT,
-                extra_user_content=f"Contexto documental:\n{payload['context']}",
-            )
-            
-            response = _safe_ask_llm(
-                messages,
-                fallback=(
-                    "## Consulta documental\n\n"
-                    "- No se ha podido completar la respuesta mediante LLM.\n"
-                    "- El contexto documental fue localizado, pero la interpretación automática no está disponible temporalmente.\n\n"
-                    "## Recomendación\n\n"
-                    "- Reformula la consulta o inténtalo de nuevo cuando el modelo esté disponible."
-                ),
-                context="KNOWLEDGE",
-            )
-
+        response = handle_knowledge(user_input, normalized)
         conversation_history.add_assistant_message(response)
         return response
 

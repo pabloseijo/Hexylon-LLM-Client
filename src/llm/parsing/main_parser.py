@@ -70,6 +70,16 @@ LIST_TASKS_MARKERS = (
     "tareas corriendo",
     "mediciones activas",
     "mediciones en curso",
+
+    # nuevas variantes
+    "listame las tareas",
+    "lístame las tareas",
+    "lista las tareas",
+    "listar tareas",
+    "muéstrame las tareas",
+    "muestrame las tareas",
+    "ver tareas",
+    "dime las tareas",
 )
 
 SESSION_QUESTION_MARKERS = (
