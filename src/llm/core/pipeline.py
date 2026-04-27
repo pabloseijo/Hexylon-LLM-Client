@@ -9,20 +9,11 @@ from llm.memory.conversation_history import conversation_history
 from llm.memory.session_memory import session_memory
 from llm.memory.session_log import EventType, session_log
 from llm.memory.task_history import task_history
-from llm.tasks.task_analyzer import analyze_csv
 from llm.tasks.task_executor import cancel_task, get_active_tasks, launch_task
 from llm.tasks.task_models import TaskResult, TaskStatus
 from llm.tasks.task_planner import try_plan_task
-from llm.tasks.task_plotter import generate_task_plot
-from llm.tasks.task_chart_data import build_task_chart_data
 from llm.parsing.main_parser import parse_input
-from llm.parsing.plot_request_parser import (
-    contains_task_reference,
-    detect_plot_intent,
-    extract_metric,
-    extract_task_reference,
-    normalize_task_reference,
-)
+from llm.handlers.analysis_handler import handle_analysis
 
 # ---------------------------------------------------------------------------
 # Prompts del sistema
@@ -244,50 +235,6 @@ def _resolve_task_id_for_cancel(user_input: str) -> tuple[str | None, str | None
         "  - cancela la tarea 1\n"
         "  - cancela la tarea task_20260416_110556\n\n"
         f"Tareas activas:\n{ids}"
-    )
-
-
-def _resolve_csv_for_analysis(user_input: str) -> tuple[str | None, str | None]:
-    text = user_input.lower()
-    recent = task_history.get_last(50)
-
-    # 1. Referencia explícita a tarea
-    referenced_task_id = extract_task_reference(user_input)
-    if referenced_task_id:
-        normalized_task_id = normalize_task_reference(referenced_task_id)
-        for entry in recent:
-            if entry.get("task_id") == normalized_task_id:
-                csv_path = entry.get("output_file")
-                if csv_path:
-                    return csv_path, normalized_task_id
-                return None, (
-                    f"La tarea {normalized_task_id} no tiene CSV asociado."
-                )
-
-        return None, f"No he encontrado la tarea {normalized_task_id} en el historial."
-
-    # 2. Coincidencia por task_id completo embebido en texto
-    for entry in recent:
-        task_id = entry.get("task_id", "")
-        if task_id and task_id.lower() in text:
-            csv_path = entry.get("output_file")
-            if csv_path:
-                return csv_path, task_id
-            return None, f"La tarea {task_id} no tiene CSV asociado."
-
-    # 3. Último CSV de sesión
-    state = session_memory.get_state()
-    if state.last_output_file:
-        return state.last_output_file, state.last_completed_task_id or ""
-
-    # 4. Última tarea completada con CSV
-    for entry in recent:
-        if entry.get("status") == "completed" and entry.get("output_file"):
-            return entry["output_file"], entry["task_id"]
-
-    return None, (
-        "No he encontrado ninguna medición reciente para analizar. "
-        "Lanza primero una tarea de medición."
     )
 
 
@@ -543,77 +490,6 @@ def _handle_session_question(user_input: str) -> str:
         context="SESSION",
     )
 
-
-def _handle_analysis(user_input: str) -> dict[str, Any] | str:
-    csv_path, task_id_or_error = _resolve_csv_for_analysis(user_input)
-    if csv_path is None:
-        return task_id_or_error
-
-    metric_filter = extract_metric(user_input)
-    plot_requested = detect_plot_intent(user_input)
-
-    plot_file: str | None = None
-    chart_data: dict[str, Any] | None = None
-
-    try:
-        analysis = analyze_csv(csv_path, task_id=task_id_or_error or "")
-    except FileNotFoundError:
-        return f"No he encontrado el fichero CSV en {csv_path}."
-    except ValueError as exc:
-        return f"No he podido leer el CSV: {exc}"
-
-    # =========================
-    # NUEVO: datos para gráfica interactiva
-    # =========================
-    if plot_requested:
-        try:
-            chart_data = build_task_chart_data(
-                csv_path,
-                requested_metric=metric_filter,
-            )
-        except Exception as e:
-            print("ERROR_CHART_DATA:", repr(e))
-            chart_data = None
-
-        # Mantienes PNG como fallback (opcional)
-        try:
-            plot_file = generate_task_plot(
-                csv_path,
-                requested_metric=metric_filter,
-            )
-        except Exception:
-            plot_file = None
-
-    messages = conversation_history.build_messages(
-        system_prompt=ANALYSIS_INTERPRETER_PROMPT,
-        extra_user_content=(
-            f"Tarea analizada: {task_id_or_error or 'desconocida'}\n"
-            f"Fichero CSV: {csv_path}\n"
-            f"Análisis calculado:\n{analysis.summary_text}"
-        ),
-    )
-
-    message = _safe_ask_llm(
-        messages,
-        fallback=(
-            "## Resumen\n\n"
-            "- El CSV se ha localizado y el análisis determinista se ha calculado correctamente.\n"
-            "- No se ha podido completar la interpretación mediante LLM.\n\n"
-            "## Valores clave\n\n"
-            f"{analysis.summary_text}\n\n"
-            "## Análisis\n\n"
-            "- La gráfica interactiva se adjunta debajo si los datos se han generado correctamente.\n\n"
-            "## Conclusión\n\n"
-            "- El sistema ha devuelto una respuesta de respaldo para evitar un error 500."
-        ),
-        context="ANALYSIS",
-    )
-
-    return {
-        "message": message,
-        "plot_file": plot_file,      
-        "chart_data": chart_data,    
-    }
 # ---------------------------------------------------------------------------
 # Pipeline principal
 # ---------------------------------------------------------------------------
@@ -625,7 +501,7 @@ def run_pipeline(user_input: str) -> dict[str, Any] | str:
     normalized = parsed.normalized_input
 
     if parsed.intent in ("analysis", "plot"):
-        response = _handle_analysis(user_input)
+        response = handle_analysis(user_input)
 
         if isinstance(response, dict):
             conversation_history.add_assistant_message(response["message"])
