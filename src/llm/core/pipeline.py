@@ -620,6 +620,14 @@ def _resolve_csv_for_analysis(user_input: str) -> tuple[str | None, str | None]:
 # Callbacks y handlers
 # ---------------------------------------------------------------------------
 
+def _safe_ask_llm(messages: list[dict[str, str]], fallback: str, context: str) -> str:
+    try:
+        return ask_llm(messages).strip()
+    except Exception as exc:
+        print(f"ERROR_LLM_{context}:", repr(exc))
+        return fallback
+
+
 def _on_task_complete(result: TaskResult) -> None:
     session_memory.set_last_completed_task(
         task_id=result.plan.task_id,
@@ -850,7 +858,15 @@ def _handle_session_question(user_input: str) -> str:
         system_prompt=SESSION_INTERPRETER_PROMPT,
         extra_user_content=f"Contexto de la sesión:\n{context}",
     )
-    return ask_llm(messages).strip()
+    return _safe_ask_llm(
+        messages,
+        fallback=(
+            "## Estado de sesión\n\n"
+            "- No se ha podido generar una respuesta interpretativa mediante LLM.\n"
+            "- El sistema sigue operativo, pero la explicación conversacional no está disponible temporalmente."
+        ),
+        context="SESSION",
+    )
 
 
 def _handle_analysis(user_input: str) -> dict[str, Any] | str:
@@ -902,21 +918,21 @@ def _handle_analysis(user_input: str) -> dict[str, Any] | str:
         ),
     )
 
-    try:
-        message = ask_llm(messages).strip()
-    except Exception as exc:
-        print("ERROR_ANALISIS_LLM:", repr(exc))
-        message = (
+    message = _safe_ask_llm(
+        messages,
+        fallback=(
             "## Resumen\n\n"
             "- El CSV se ha localizado y el análisis determinista se ha calculado correctamente.\n"
-            "- No se ha podido completar la interpretación mediante LLM por timeout de Ollama.\n\n"
+            "- No se ha podido completar la interpretación mediante LLM.\n\n"
             "## Valores clave\n\n"
             f"{analysis.summary_text}\n\n"
             "## Análisis\n\n"
-            "- La gráfica interactiva se adjunta debajo de esta respuesta si los datos se han generado correctamente.\n\n"
+            "- La gráfica interactiva se adjunta debajo si los datos se han generado correctamente.\n\n"
             "## Conclusión\n\n"
             "- El sistema ha devuelto una respuesta de respaldo para evitar un error 500."
-        )
+        ),
+        context="ANALYSIS",
+    )
 
     return {
         "message": message,
@@ -992,7 +1008,18 @@ def run_pipeline(user_input: str) -> dict[str, Any] | str:
                 system_prompt=KNOWLEDGE_SYSTEM_PROMPT,
                 extra_user_content=f"Contexto documental:\n{payload['context']}",
             )
-            response = ask_llm(messages).strip()
+            
+            response = _safe_ask_llm(
+                messages,
+                fallback=(
+                    "## Consulta documental\n\n"
+                    "- No se ha podido completar la respuesta mediante LLM.\n"
+                    "- El contexto documental fue localizado, pero la interpretación automática no está disponible temporalmente.\n\n"
+                    "## Recomendación\n\n"
+                    "- Reformula la consulta o inténtalo de nuevo cuando el modelo esté disponible."
+                ),
+                context="KNOWLEDGE",
+            )
 
         conversation_history.add_assistant_message(response)
         return response
@@ -1003,7 +1030,17 @@ def run_pipeline(user_input: str) -> dict[str, Any] | str:
         messages = conversation_history.build_messages(
             system_prompt=COMMAND_INTERPRETER_PROMPT,
         )
-        response = ask_llm(messages).strip()
+        response = _safe_ask_llm(
+            messages,
+            fallback=(
+                "## Petición no reconocida\n\n"
+                "- No he podido determinar un comando SCPI válido para esta petición.\n"
+                "- Tampoco ha sido posible generar una respuesta interpretativa mediante LLM.\n\n"
+                "## Acción recomendada\n\n"
+                "- Indica explícitamente la métrica, comando o tarea que quieres consultar."
+            ),
+            context="UNKNOWN_COMMAND",
+        )
         conversation_history.add_assistant_message(response)
         return response
 
@@ -1019,6 +1056,17 @@ def run_pipeline(user_input: str) -> dict[str, Any] | str:
             f"Respuesta del equipo: {raw_response}"
         ),
     )
-    response = ask_llm(messages).strip()
+    response = _safe_ask_llm(
+        messages,
+        fallback=(
+            "## Respuesta del equipo\n\n"
+            f"- **Comando ejecutado**: `{scpi_command}`\n"
+            f"- **Respuesta cruda**: `{raw_response}`\n\n"
+            "## Interpretación\n\n"
+            "- No se ha podido interpretar la respuesta mediante LLM.\n"
+            "- Se muestra la respuesta directa del equipo Hexylon."
+        ),
+        context="SCPI_RESPONSE",
+    )
     conversation_history.add_assistant_message(response)
     return response
