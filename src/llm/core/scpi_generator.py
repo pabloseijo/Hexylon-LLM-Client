@@ -1,4 +1,5 @@
 from __future__ import annotations
+import re
 
 from typing import Literal
 
@@ -129,143 +130,362 @@ def is_valid_scpi_output(scpi_text: str) -> bool:
     command_name = extract_command_name(scpi_text)
     return command_exists(command_name)
 
-
 def keyword_mapping(user_input: str) -> str | None:
-    """
-    Aplica reglas deterministas mínimas para consultas simples y frecuentes.
-
-    Estas reglas tienen prioridad sobre el LLM para reducir ambigüedad y coste.
-    Solo deben activarse cuando la intención es claramente operativa.
-    """
     text = user_input.lower()
 
-    if "perfil" in text and any(
-        term in text for term in ["actual", "activo", "seleccionado", "current"]
-    ):
-        return "PROF?"
-    if "parámetro" in text or "parametro" in text:
-        return "PAR?"
-    if "medida" in text or "medición" in text or "medicion" in text:
-        return "MEAS?"
+    # ---------------------------------------------------------
+    # 1. FILTRO DE KNOWLEDGE
+    # ---------------------------------------------------------
+
+    if any(marker in text for marker in [
+        "qué es", "que es",
+        "qué significa", "que significa",
+        "explícame", "explicame",
+        "para qué sirve", "para que sirve",
+        "qué hace", "que hace",
+    ]):
+        return "UNKNOWN"
+
+    # ---------------------------------------------------------
+    # 2. POTENCIA ÓPTICA
+    # ---------------------------------------------------------
+
+    if "potencia óptica" in text or "potencia optica" in text:
+        if "1310" in text:
+            return "OPT_POW_1310?"
+        if "1490" in text:
+            return "OPT_POW_1490?"
+        if "1550" in text:
+            return "OPT_POW_1550?"
+        return "OPT_POW?"
+
+    # ---------------------------------------------------------
+    # 3. BER AVANZADOS
+    # ---------------------------------------------------------
+
+    if "preldpcber" in text:
+        return "PRELDPCBER?"
+    if "prebchber" in text:
+        return "PREBCHBER?"
+    if "mscber" in text:
+        return "MSCBER?"
+    if "ficber" in text:
+        return "FICBER?"
+
+    if "cber" in text and "capa a" in text:
+        return "CBERA?"
+    if "vber" in text and "capa a" in text:
+        return "VBERA?"
+    if "cber" in text and "capa b" in text:
+        return "CBERB?"
+    if "vber" in text and "capa b" in text:
+        return "VBERB?"
+    if "cber" in text and "capa c" in text:
+        return "CBERC?"
+    if "vber" in text and "capa c" in text:
+        return "VBERC?"
+
+    if "bootstrap" in text and ("c/n" in text or "c n" in text or "cn" in text):
+        return "CNBOOT?"
+
+    # ---------------------------------------------------------
+    # 4. MEDICIONES
+    # ---------------------------------------------------------
+
+    if "mer" in text:
+        return "MER?"
+
     if (
-        "bloqueada" in text
-        or "bloqueado" in text
-        or "lock" in text
-        or "sincronizada" in text
-        or "sincronizado" in text
+        "potencia" in text
+        or "nivel de señal" in text
+        or "nivel de senal" in text
+        or "nivel actual" in text
     ):
-        return "LOCK?"
-    if "banda" in text and any(
-        term in text
-        for term in ["actual", "seleccionada", "seleccionado", "activa", "qué", "que"]
+        return "POW?"
+
+    if (
+        "c/n" in text
+        or "c n" in text
+        or "carrier noise" in text
+        or "portadora ruido" in text
+        or "relación portadora ruido" in text
+        or "relacion portadora ruido" in text
     ):
-        return "BAND?"
-    if "frecuencia" in text and any(
-        term in text
-        for term in ["actual", "sintonizada", "qué", "que", "dime", "muestra"]
-    ):
+        return "CN?"
+
+    if "cber" in text:
+        return "CBER?"
+
+    if "vber" in text:
+        return "VBER?"
+
+    if "bchber" in text:
+        return "BCHBER?"
+
+    if "margen de enlace" in text or "link margin" in text:
+        return "LKM?"
+
+    if "ber" in text and "antes" in text:
+        return "CBER?"
+
+    # ---------------------------------------------------------
+    # 5. ESPECTRO (ANTES QUE FREQ)
+    # ---------------------------------------------------------
+
+    if "rbw" in text:
+        if "auto" in text:
+            return "RBW AUTO"
+
+        match = re.search(r"(\d+)\s*(hz|khz|mhz)", text)
+        if match:
+            value = match.group(1)
+            unit_map = {"hz": "HzW", "khz": "KHzW", "mhz": "MHzW"}
+            return f"RBW {value}{unit_map[match.group(2)]}"
+
+        return "RBW?"
+
+    if "vbw" in text:
+        if "auto" in text:
+            return "VBW AUTO"
+
+        match = re.search(r"(\d+)\s*(hz|khz|mhz)", text)
+        if match:
+            value = match.group(1)
+            unit_map = {"hz": "Hz", "khz": "KHz", "mhz": "MHz"}
+            return f"VBW {value}{unit_map[match.group(2)]}"
+
+        return "VBW?"
+
+    if "span" in text:
+        match = re.search(r"(\d+)\s*(khz|mhz)", text)
+        if match:
+            value = match.group(1)
+            unit_map = {"khz": "KHz", "mhz": "MHz"}
+            return f"SPAN {value}{unit_map[match.group(2)]}"
+
+        return "SPAN?"
+
+    if "nivel de referencia" in text:
+        if "auto" in text:
+            return "RLEVEL AUTO"
+
+        match = re.search(r"(\d+)\s*(dbuv|dbmv|dbm)", text)
+        if match:
+            value = match.group(1)
+            unit_map = {
+                "dbuv": "dBuV",
+                "dbmv": "dBmV",
+                "dbm": "dBm",
+            }
+            return f"RLEVEL {value}{unit_map[match.group(2)]}"
+
+        return "RLEVEL?"
+
+    # ---------------------------------------------------------
+    # 6. FRECUENCIA
+    # ---------------------------------------------------------
+
+    match = re.search(r"(\d+(\.\d+)?)\s*(ghz|mhz|khz)", text)
+    if match and any(term in text for term in ["pon", "cambia", "sintoniza"]):
+        value = match.group(1)
+        unit_map = {"ghz": "GHz", "mhz": "MHz", "khz": "kHz"}
+        return f"FREQ {value}{unit_map[match.group(3)]}"
+
+    if "frecuencia" in text:
         return "FREQ?"
-    if "identificación" in text or "identificacion" in text or "información del equipo" in text:
+
+    # ---------------------------------------------------------
+    # 7. RESTO
+    # ---------------------------------------------------------
+
+    if "banda" in text:
+        if "terrestre" in text:
+            return "BAND TER"
+        if "satélite" in text or "satelite" in text:
+            return "BAND SAT"
+        if "fm" in text:
+            return "BAND FM"
+        if "dab" in text:
+            return "BAND DAB"
+        return "BAND?"
+
+    if "canal" in text:
+        if "siguiente" in text:
+            return "CH UP"
+        if "anterior" in text:
+            return "CH DOWN"
+        match = re.search(r"canal\s+(\d+)", text)
+        if match:
+            return f"CH {match.group(1)}"
+        return "CH?"
+
+    if "entrada" in text:
+        if "rf" in text:
+            return "INPUT RF"
+        if "fibra" in text or "óptica" in text or "optica" in text:
+            return "INPUT FO"
+        if "ip" in text:
+            return "INPUT IP"
+        if "asi" in text:
+            return "INPUT ASI"
+        if "cvbs" in text:
+            return "INPUT CVBS"
+        return "INPUT?"
+
+    if "lambda" in text:
+        if "1310" in text:
+            return "LAMBDA 1310"
+        if "1490" in text:
+            return "LAMBDA 1490"
+        if "1550" in text:
+            return "LAMBDA 1550"
+        return "LAMBDA?"
+
+    if "perfil" in text:
+        if any(term in text for term in ["actual", "activo", "seleccionado"]):
+            return "PROF?"
+        match = re.search(r"perfil\s+(\S+)", text)
+        if match:
+            return f"PROF {match.group(1)}"
+
+    if "servicios" in text:
+        return "SERVICES?"
+
+    match = re.search(r"servicio\s+(\d+)", text)
+    if match:
+        return f"SERVICE {match.group(1)}"
+
+    if "pantalla" in text or "captura" in text:
+        return "IMAG"
+
+    if "atenuación" in text or "atenuacion" in text:
+        return "ATT"
+
+    if "hold" in text:
+        if "limpia" in text:
+            return "HOLD CLEAR"
+        if "máximo" in text or "maximo" in text:
+            return "HOLD MAX OFF" if "desactiva" in text else "HOLD MAX ON"
+        if "mínimo" in text or "minimo" in text:
+            return "HOLD MIN OFF" if "desactiva" in text else "HOLD MIN ON"
+
+    if "identificación" in text or "identificacion" in text:
         return "IDN?"
 
+    if "parámetro" in text or "parametro" in text:
+        return "PAR?"
+
+    if "medida" in text or "medición" in text or "medicion" in text:
+        return "MEAS?"
+
+    if "bloqueado" in text or "bloqueada" in text or "lock" in text:
+        return "LOCK?"
+
     return None
+
 
 
 def detect_intent(user_input: str) -> Intent:
     """
     Detecta si la petición del usuario es operativa o documental.
 
-    - command: quiere obtener/generar un comando SCPI
-    - knowledge: quiere una explicación técnica basada en la documentación
+    - command: quiere ejecutar/configurar algo (SCPI)
+    - knowledge: quiere explicación técnica o documentación
     """
-    text = user_input.lower()
 
+    text = user_input.lower()
+    upper = user_input.upper()
+
+    # -------------------------------
+    # 1. Marcadores de knowledge
+    # -------------------------------
     knowledge_markers = [
         # Explicación directa
-        "qué hace",
-        "que hace",
-        "qué devuelve",
-        "que devuelve",
-        "qué significa",
-        "que significa",
-        "qué es",
-        "que es",
-        "qué son",
-        "que son",
-        "explícame",
-        "explicame",
+        "qué hace", "que hace",
+        "qué devuelve", "que devuelve",
+        "qué significa", "que significa",
+        "qué es", "que es",
+        "qué son", "que son",
+        "explícame", "explicame",
         "explica",
         "puedes explicarme",
+
         # Funcionamiento
-        "cómo funciona",
-        "como funciona",
-        "cómo se usa",
-        "como se usa",
-        "cómo se utiliza",
-        "como se utiliza",
-        "cómo puedo",
-        "como puedo",
-        "cómo cambio",
-        "como cambio",
-        "cómo selecciono",
-        "como selecciono",
-        "cómo configuro",
-        "como configuro",
-        # Restricciones y sintaxis
-        "qué restricciones",
-        "que restricciones",
-        "qué opciones",
-        "que opciones",
+        "cómo funciona", "como funciona",
+        "cómo se usa", "como se usa",
+        "cómo se utiliza", "como se utiliza",
+
+        # Documentación / sintaxis
         "sintaxis",
-        "documentación",
-        "documentacion",
-        # Listados y áreas
-        "qué comandos",
-        "que comandos",
-        "qué comandos existen",
-        "que comandos existen",
-        "qué comandos hay",
-        "que comandos hay",
-        "comandos para",
-        "comandos de",
-        "para qué sirve",
-        "para que sirve",
+        "documentación", "documentacion",
+        "qué restricciones", "que restricciones",
+        "qué opciones", "que opciones",
+
+        # Listados
+        "qué comandos", "que comandos",
+        "qué comandos existen", "que comandos existen",
+        "qué comandos hay", "que comandos hay",
+        "comandos para", "comandos de",
+
+        # Comparativas
         "diferencia entre",
+
+        # Uso conceptual (NO operativo)
+        "para qué sirve", "para que sirve",
+
         # Ayuda general
-        "ayuda",
-        "help",
-        "quién eres",
-        "quien eres",
-        "tu función",
-        "tu funcion",
-        "qué eres",
-        "que eres",
-        "qué puedes hacer",
-        "que puedes hacer",
+        "ayuda", "help",
+        "quién eres", "quien eres",
+        "tu función", "tu funcion",
+        "qué eres", "que eres",
+        "qué puedes hacer", "que puedes hacer",
     ]
 
-    # Marcadores que indican claramente que está fuera del dominio
+    # -------------------------------
+    # 2. Marcadores fuera de dominio
+    # -------------------------------
     out_of_domain_markers = [
-        "receta",
-        "tiempo",
-        "clima",
-        "deporte",
-        "película",
-        "pelicula",
-        "música",
-        "musica",
-        "política",
-        "politica",
+        "receta", "tiempo", "clima",
+        "deporte", "película", "pelicula",
+        "música", "musica",
+        "política", "politica",
         "chiste",
     ]
 
     if any(marker in text for marker in out_of_domain_markers):
-        return "knowledge"  # El clasificador lo capturará como unsupported
+        return "knowledge"
 
+    # -------------------------------
+    # 3. Detección de comandos SCPI explícitos
+    # -------------------------------
+    # Evita que "qué hace CN" vaya a command
+    from llm.knowledge.command_catalog import COMMAND_CATALOG
+
+    contains_scpi_command = any(
+        re.search(rf"\b{cmd}\b", upper) for cmd in COMMAND_CATALOG.keys()
+    )
+
+    # -------------------------------
+    # 4. Clasificación
+    # -------------------------------
+
+    # Caso 1: pregunta explicativa → knowledge SIEMPRE
     if any(marker in text for marker in knowledge_markers):
         return "knowledge"
 
+    # Caso 2: contiene comando SCPI pero sin verbo operativo → knowledge
+    if contains_scpi_command:
+        # Ej: "CN", "MER", "POW" solos o en contexto ambiguo
+        if not any(v in text for v in [
+            "pon", "cambia", "ajusta", "configura",
+            "mide", "consulta", "dame", "lee",
+            "set", "get"
+        ]):
+            return "knowledge"
+
+    # Caso 3: operativo por defecto
     return "command"
+
 
 def build_command_messages(user_input: str) -> list[dict[str, str]]:
     """
@@ -274,27 +494,21 @@ def build_command_messages(user_input: str) -> list[dict[str, str]]:
     payload = build_knowledge_payload(
         user_input,
         mode="command",
-        include_reference=True,
-        max_commands=5,
-        max_topics=3,
+        include_reference=False,
+        max_commands=2,
+        max_topics=0,
     )
 
     user_prompt = f"""
-Contexto documental seleccionado:
-{payload["context"]}
+    Contexto documental:
+    {payload["context"]}
 
-Comandos candidatos detectados:
-{payload["selected_commands"]}
+    Petición del usuario:
+    {user_input}
 
-Topics candidatos detectados:
-{payload["selected_topics"]}
-
-Petición del usuario:
-{user_input}
-
-Devuelve exactamente un único comando SCPI válido o UNKNOWN.
-""".strip()
-
+    Devuelve exactamente un único comando SCPI válido o UNKNOWN.
+    """.strip()
+    
     return [
         {"role": "system", "content": SCPI_COMMAND_SYSTEM_PROMPT},
         {"role": "user", "content": user_prompt},

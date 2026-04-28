@@ -1,0 +1,103 @@
+{"input":"Dame el MER actual","expected":"MER?"}
+{"input":"Consulta el MER","expected":"MER?"}
+{"input":"Mide el MER de la señal","expected":"MER?"}
+{"input":"Quiero saber el MER","expected":"MER?"}
+{"input":"Mide la potencia de señal","expected":"POW?"}
+{"input":"¿Qué nivel de señal tengo ahora?","expected":"POW?"}
+{"input":"Consulta la potencia actual","expected":"POW?"}
+{"input":"Dame el nivel actual","expected":"POW?"}
+{"input":"Quiero saber el C/N","expected":"CN?"}
+{"input":"Dame la relación portadora ruido","expected":"CN?"}
+{"input":"Consulta el carrier noise","expected":"CN?"}
+{"input":"Mide el C N","expected":"CN?"}
+{"input":"Consulta el BER antes de corrección","expected":"CBER?"}
+{"input":"Dame el CBER","expected":"CBER?"}
+{"input":"Lee el VBER","expected":"VBER?"}
+{"input":"Consulta el BCHBER","expected":"BCHBER?"}
+{"input":"Quiero el margen de enlace","expected":"LKM?"}
+{"input":"Dame el link margin","expected":"LKM?"}
+{"input":"Consulta el PER","expected":"PER?"}
+{"input":"Dame el SER","expected":"SER?"}
+{"input":"Mide el HUM","expected":"HUM?"}
+{"input":"Consulta el CSO","expected":"CSO?"}
+{"input":"Dame el PreBER","expected":"PREBER?"}
+{"input":"Dame el PostBER","expected":"POSTBER?"}
+{"input":"Consulta el PreLDPCBER","expected":"PRELDPCBER?"}
+{"input":"Consulta el PreBCHBER","expected":"PREBCHBER?"}
+{"input":"Dame el MSCBER","expected":"MSCBER?"}
+{"input":"Dame el FICBER","expected":"FICBER?"}
+{"input":"Consulta el CBER de la capa A","expected":"CBERA?"}
+{"input":"Consulta el VBER de la capa A","expected":"VBERA?"}
+{"input":"Consulta el CBER de la capa B","expected":"CBERB?"}
+{"input":"Consulta el VBER de la capa B","expected":"VBERB?"}
+{"input":"Consulta el CBER de la capa C","expected":"CBERC?"}
+{"input":"Consulta el VBER de la capa C","expected":"VBERC?"}
+{"input":"Dame el C/N bootstrap","expected":"CNBOOT?"}
+{"input":"Consulta las medidas actuales","expected":"MEAS?"}
+{"input":"Dame los parámetros de la señal","expected":"PAR?"}
+{"input":"Está bloqueada la señal","expected":"LOCK?"}
+{"input":"Dime si el equipo está sincronizado","expected":"LOCK?"}
+{"input":"Mide la potencia óptica","expected":"OPT_POW?"}
+{"input":"Dame la potencia óptica actual","expected":"OPT_POW?"}
+{"input":"Dame la potencia óptica en 1310","expected":"OPT_POW_1310?"}
+{"input":"Consulta potencia óptica 1490","expected":"OPT_POW_1490?"}
+{"input":"Dame la potencia óptica en 1550","expected":"OPT_POW_1550?"}
+{"input":"Pon lambda a 1310","expected":"LAMBDA 1310"}
+{"input":"Pon lambda a 1490","expected":"LAMBDA 1490"}
+{"input":"Pon lambda a 1550","expected":"LAMBDA 1550"}
+{"input":"Consulta la lambda actual","expected":"LAMBDA?"}
+{"input":"Consulta la frecuencia actual","expected":"FREQ?"}
+{"input":"Quiero ver la frecuencia sintonizada","expected":"FREQ?"}
+{"input":"Pon la frecuencia en 650 MHz","expected":"FREQ 650MHz"}
+{"input":"Sintoniza 594 MHz","expected":"FREQ 594MHz"}
+{"input":"Cambia a 1.25 GHz","expected":"FREQ 1.25GHz"}
+{"input":"Qué banda está seleccionada","expected":"BAND?"}
+{"input":"Cambia a banda terrestre","expected":"BAND TER"}
+{"input":"Cambia a banda satélite","expected":"BAND SAT"}
+{"input":"Selecciona banda FM","expected":"BAND FM"}
+{"input":"Pon banda DAB","expected":"BAND DAB"}
+{"input":"Consulta el canal actual","expected":"CH?"}
+{"input":"Cambia al siguiente canal","expected":"CH UP"}
+{"input":"Cambia al canal anterior","expected":"CH DOWN"}
+{"input":"Sintoniza el canal 38","expected":"CH 38"}
+{"input":"Cambia la entrada a RF","expected":"INPUT RF"}
+{"input":"Cambia la entrada a fibra óptica","expected":"INPUT FO"}
+{"input":"Selecciona entrada IP","expected":"INPUT IP"}
+{"input":"Cambia la entrada a ASI","expected":"INPUT ASI"}
+{"input":"Selecciona entrada CVBS","expected":"INPUT CVBS"}
+{"input":"Consulta la entrada actual","expected":"INPUT?"}
+{"input":"Pon el RBW en automático","expected":"RBW AUTO"}
+{"input":"Consulta el RBW","expected":"RBW?"}
+{"input":"Pon el RBW en 300 HzW","expected":"RBW 300HzW"}
+{"input":"Pon el VBW en automático","expected":"VBW AUTO"}
+{"input":"Consulta el VBW","expected":"VBW?"}
+{"input":"Pon el VBW en 10 KHz","expected":"VBW 10KHz"}
+{"input":"Consulta el span","expected":"SPAN?"}
+{"input":"Pon el span en 20 MHz","expected":"SPAN 20MHz"}
+{"input":"Pon el nivel de referencia en automático","expected":"RLEVEL AUTO"}
+{"input":"Consulta el nivel de referencia","expected":"RLEVEL?"}
+{"input":"Pon el nivel de referencia en 80 dBuV","expected":"RLEVEL 80dBuV"}
+{"input":"Reinicia la atenuación","expected":"ATT"}
+{"input":"Activa hold máximo","expected":"HOLD MAX ON"}
+{"input":"Desactiva hold máximo","expected":"HOLD MAX OFF"}
+{"input":"Activa hold mínimo","expected":"HOLD MIN ON"}
+{"input":"Desactiva hold mínimo","expected":"HOLD MIN OFF"}
+{"input":"Limpia el hold del espectro","expected":"HOLD CLEAR"}
+{"input":"Dame el perfil actual","expected":"PROF?"}
+{"input":"Lista los perfiles disponibles","expected":"LPROF?"}
+{"input":"Selecciona el perfil demo_import","expected":"PROF demo_import"}
+{"input":"Lista los servicios del TS","expected":"SERVICES?"}
+{"input":"Selecciona el servicio 2371","expected":"SERVICE 2371"}
+{"input":"Haz una captura de pantalla","expected":"IMAG"}
+{"input":"Dame la identificación del equipo","expected":"IDN?"}
+{"input":"Dime la información del equipo","expected":"IDN?"}
+{"input":"Quiero ver la señal","expected":"UNKNOWN"}
+{"input":"Analiza todo el sistema","expected":"UNKNOWN"}
+{"input":"Haz un diagnóstico completo","expected":"UNKNOWN"}
+{"input":"Ponlo bien","expected":"UNKNOWN"}
+{"input":"Mejora la calidad de señal","expected":"UNKNOWN"}
+{"input":"Explícame qué es el MER","expected":"UNKNOWN"}
+{"input":"Para qué sirve el comando POW","expected":"UNKNOWN"}
+{"input":"Qué tiempo hace hoy","expected":"UNKNOWN"}
+{"input":"Cuéntame un chiste","expected":"UNKNOWN"}
+{"input":"Busca información en internet","expected":"UNKNOWN"}

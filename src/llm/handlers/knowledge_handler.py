@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from llm.clients.ollama_client import ask_llm
 from llm.memory.conversation_history import conversation_history
 from llm.memory.session_log import session_log
@@ -33,8 +35,11 @@ def _safe_ask_llm(messages: list[dict[str, str]], fallback: str) -> str:
 def _extract_catalog_command(text: str) -> str | None:
     upper = text.upper()
 
+    # Detecta comandos exactos como POW, POW?, MER, MER?, etc.
     for command_name in sorted(COMMAND_CATALOG.keys(), key=len, reverse=True):
-        if command_name in upper:
+        pattern = rf"(?<![A-Z0-9_]){re.escape(command_name)}\??(?![A-Z0-9_])"
+
+        if re.search(pattern, upper):
             return command_name
 
     return None
