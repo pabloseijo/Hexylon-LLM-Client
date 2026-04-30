@@ -2,3 +2,41 @@ __pycache__/
 *.pyc
 .env
 *.csv
+
+
+# -----------------------------
+# Fine-tuning outputs (pesados)
+# -----------------------------
+finetuning/output/
+
+# Checkpoints
+**/checkpoint-*/
+
+# Model weights
+*.safetensors
+*.bin
+*.pt
+
+# Tokenizers generados
+tokenizer.json
+tokenizer_config.json
+special_tokens_map.json
+
+# HuggingFace cache
+.cache/
+hf_cache/
+huggingface/
+
+# Logs
+*.log
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Virtual environments
+.venv/
+venv/
+
+# OS
+.DS_Store

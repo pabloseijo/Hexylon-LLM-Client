@@ -5,6 +5,7 @@ from typing import Literal
 
 from llm.clients.ollama_client import ask_llm
 from llm.knowledge.command_catalog import command_exists
+from llm.core.scpi_normalizer import normalize_scpi_command
 from llm.knowledge.context_builder import build_knowledge_payload
 from llm.knowledge.query_classifier import classify
 from llm.knowledge.response_formatter import (
@@ -464,6 +465,18 @@ def detect_intent(user_input: str) -> Intent:
     contains_scpi_command = any(
         re.search(rf"\b{cmd}\b", upper) for cmd in COMMAND_CATALOG.keys()
     )
+    
+    
+
+    if "ber" in text and any(term in text for term in [
+        "previo",
+        "antes de corrección",
+        "antes de correccion",
+        "antes del corrector",
+        "pre-corrección",
+        "pre corrección",
+    ]):
+        return "CBER?"
 
     # -------------------------------
     # 4. Clasificación
@@ -485,6 +498,7 @@ def detect_intent(user_input: str) -> Intent:
 
     # Caso 3: operativo por defecto
     return "command"
+
 
 
 def build_command_messages(user_input: str) -> list[dict[str, str]]:
@@ -549,27 +563,27 @@ No respondas solo con el nombre del comando.
         {"role": "user", "content": user_prompt},
     ]
 
-
 def generate_scpi(user_input: str) -> str:
     """
     Genera un comando SCPI a partir de una petición operativa del usuario.
 
     Flujo:
-    1. Intenta resolver por reglas deterministas simples.
+    1. Intenta resolver por reglas deterministas.
     2. Si no aplica, usa el LLM con contexto dinámico en modo command.
     3. Valida que la salida corresponda a un comando documentado.
+    4. Normaliza el formato final del comando SCPI.
     """
     mapped = keyword_mapping(user_input)
     if mapped is not None:
-        return mapped
+        return normalize_scpi_command(mapped)
 
-    response = ask_llm(build_command_messages(user_input))
+    response = ask_llm(build_command_messages(user_input), num_predict=16)
     command = normalize_command(response)
 
     if not is_valid_scpi_output(command):
         return "UNKNOWN"
 
-    return command
+    return normalize_scpi_command(command)
 
 
 def answer_with_knowledge(user_input: str) -> str:
