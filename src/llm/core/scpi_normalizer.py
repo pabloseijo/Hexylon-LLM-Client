@@ -6,7 +6,7 @@ import re
 FREQ_UNITS = {
     "ghz": "GHz",
     "mhz": "MHz",
-    "khz": "kHz",
+    "khz": "KHz",
 }
 
 BANDWIDTH_UNITS = {
@@ -58,7 +58,7 @@ def normalize_scpi_command(command: str) -> str:
         if match:
             value = _clean_number(match.group(1))
             unit = FREQ_UNITS[match.group(2).lower()]
-            return f"FREQ {value}{unit}"
+            return f"FREQ {value} {unit}"
 
     # RBW 300hzw / 300 hz -> RBW 300HzW
     if name == "RBW":
@@ -71,7 +71,7 @@ def normalize_scpi_command(command: str) -> str:
                 raw_unit = f"{raw_unit}w"
 
             unit = BANDWIDTH_UNITS[raw_unit]
-            return f"RBW {value}{unit}"
+            return f"RBW {value} {unit}"
 
         if args.upper() == "AUTO":
             return "RBW AUTO"
@@ -82,7 +82,7 @@ def normalize_scpi_command(command: str) -> str:
         if match:
             value = _clean_number(match.group(1))
             unit = BANDWIDTH_UNITS[match.group(2).lower()]
-            return f"VBW {value}{unit}"
+            return f"VBW {value} {unit}"
 
         if args.upper() == "AUTO":
             return "VBW AUTO"
@@ -93,7 +93,7 @@ def normalize_scpi_command(command: str) -> str:
         if match:
             value = _clean_number(match.group(1))
             unit = BANDWIDTH_UNITS[match.group(2).lower()]
-            return f"SPAN {value}{unit}"
+            return f"SPAN {value} {unit}"
 
     # RLEVEL 80dbuv -> RLEVEL 80dBuV
     if name == "RLEVEL":
@@ -101,7 +101,7 @@ def normalize_scpi_command(command: str) -> str:
         if match:
             value = _clean_number(match.group(1))
             unit = LEVEL_UNITS[match.group(2).lower()]
-            return f"RLEVEL {value}{unit}"
+            return f"RLEVEL {value} {unit}"
 
         if args.upper() == "AUTO":
             return "RLEVEL AUTO"

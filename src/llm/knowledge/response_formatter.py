@@ -41,27 +41,9 @@ def _inline_list(items: list[str] | None) -> str:
 # ---------------------------------------------------------------------------
 
 def format_command_answer(command_name: str) -> str:
-    """
-    Construye una respuesta completa y estructurada para un comando SCPI
-    concreto a partir del catálogo. No invoca al LLM.
-
-    Parameters
-    ----------
-    command_name:
-        Nombre del comando tal como aparece en el catálogo (p. ej. 'FREQ').
-
-    Returns
-    -------
-    str
-        Respuesta formateada lista para mostrar al usuario, o mensaje de
-        comando no encontrado si no existe en el catálogo.
-    """
     info = get_command_info(command_name)
     if not info:
-        return (
-            f"El comando '{command_name}' no está documentado en el catálogo "
-            f"de la API Hexylon."
-        )
+        return format_unknown_answer(command_name)
 
     name = info["name"]
     category = info.get("category", "desconocida")
@@ -76,73 +58,49 @@ def format_command_answer(command_name: str) -> str:
     examples = info.get("examples") or []
     related = info.get("related_commands") or []
 
-    lines: list[str] = []
+    syntax_lines = read_syntax + write_syntax
+    syntax_block = "\n".join(syntax_lines) if syntax_lines else "N/A"
 
-    lines.append(f"Comando: {name}")
-    lines.append(f"Categoría: {category}")
-    lines.append("")
-    lines.append(f"Descripción: {description}")
-
-    if read_syntax or write_syntax:
-        lines.append("")
-        lines.append("Sintaxis:")
-        for s in read_syntax:
-            lines.append(f"  {s}   (lectura)")
-        for s in write_syntax:
-            lines.append(f"  {s}   (escritura)")
-
-    if read_response:
-        lines.append("")
-        lines.append(f"Respuesta de lectura: {read_response}")
-
-    if write_values:
-        lines.append("")
-        lines.append(f"Valores de escritura: {_inline_list(write_values)}")
-
-    if units:
-        lines.append("")
-        lines.append(f"Unidades: {_inline_list(units)}")
-
-    if constraints:
-        lines.append("")
-        lines.append("Restricciones:")
-        lines.append(_list_or_none(constraints))
-
-    if notes:
-        lines.append("")
-        lines.append("Notas:")
-        lines.append(_list_or_none(notes))
-
-    if examples:
-        lines.append("")
-        lines.append("Ejemplos:")
-        lines.append(_list_or_none(examples))
-
-    if related:
-        lines.append("")
-        lines.append(f"Comandos relacionados: {_inline_list(related)}")
-
-    return "\n".join(lines)
+    return "\n".join([
+        "## Elemento consultado",
+        "",
+        f"- **Comando**: `{name}`",
+        f"- **Categoría**: {category}",
+        "",
+        "## Descripción",
+        "",
+        f"- {description}",
+        "",
+        "## Sintaxis o comandos relacionados",
+        "",
+        "```scpi",
+        syntax_block,
+        "```",
+        "",
+        "## Respuesta o comportamiento",
+        "",
+        f"- {read_response or 'No documentado'}",
+        f"- **Valores de escritura**: {_inline_list(write_values)}",
+        f"- **Unidades**: {_inline_list(units)}",
+        "",
+        "## Restricciones o notas",
+        "",
+        _list_or_none(constraints + notes),
+        "",
+        "## Ejemplos",
+        "",
+        _list_or_none(examples),
+        "",
+        "## Comandos relacionados",
+        "",
+        f"- {_inline_list(related)}",
+    ])
 
 
 def format_metric_answer(command_name: str) -> str:
-    """
-    Construye una respuesta orientada a la definición de una métrica de señal.
-
-    Más concisa que format_command_answer: omite la sección de escritura
-    cuando no aplica y añade un encabezado orientado a definición.
-
-    Parameters
-    ----------
-    command_name:
-        Nombre del comando de métrica (p. ej. 'MER', 'CBER').
-    """
     info = get_command_info(command_name)
     if not info:
-        return (
-            f"La métrica '{command_name}' no está documentada en el catálogo "
-            f"de la API Hexylon."
-        )
+        return format_unknown_answer(command_name)
 
     name = info["name"]
     description = info.get("description", "Sin descripción.")
@@ -153,77 +111,76 @@ def format_metric_answer(command_name: str) -> str:
     constraints = info.get("constraints") or []
     related = info.get("related_commands") or []
 
-    lines: list[str] = []
+    syntax_block = "\n".join(read_syntax) if read_syntax else "N/A"
 
-    lines.append(f"Métrica: {name}")
-    lines.append("")
-    lines.append(f"Definición: {description}")
-
-    if read_syntax:
-        lines.append("")
-        lines.append(f"Comando de lectura: {read_syntax[0]}")
-
-    if read_response:
-        lines.append(f"Respuesta: {read_response}")
-
-    if units:
-        lines.append(f"Unidades: {_inline_list(units)}")
-
-    if notes:
-        lines.append("")
-        lines.append("Notas:")
-        lines.append(_list_or_none(notes))
-
-    if constraints:
-        lines.append("")
-        lines.append("Restricciones:")
-        lines.append(_list_or_none(constraints))
-
-    if related:
-        lines.append("")
-        lines.append(f"Métricas relacionadas: {_inline_list(related)}")
-
-    return "\n".join(lines)
+    return "\n".join([
+        "## Elemento consultado",
+        "",
+        f"**{name}**",
+        "",
+        "## Descripción",
+        "",
+        f"- {description}",
+        "",
+        "## Sintaxis o comandos relacionados",
+        "",
+        "```scpi",
+        syntax_block,
+        "```",
+        "",
+        "## Respuesta o comportamiento",
+        "",
+        f"- {read_response or 'No documentado'}",
+        f"- **Unidades**: {_inline_list(units)}",
+        "",
+        "## Restricciones o notas",
+        "",
+        _list_or_none(constraints + notes),
+        "",
+        "## Métricas relacionadas",
+        "",
+        f"- {_inline_list(related)}",
+    ])
 
 
 def format_topic_answer(topic_names: list[str]) -> str:
-    """
-    Construye un resumen del área funcional indicada usando el topic_catalog.
-
-    Este método es semideterminista: el contenido viene del catálogo pero
-    puede complementarse con generación restringida en el router si el
-    topic_context es insuficiente.
-
-    Parameters
-    ----------
-    topic_names:
-        Lista de nombres de topics seleccionados.
-    """
     context = get_topic_context(topic_names)
+    names = ", ".join(topic_names) if topic_names else "desconocido"
+
     if not context or not context.strip():
-        names = ", ".join(topic_names) if topic_names else "desconocido"
-        return (
-            f"No se ha encontrado documentación para el área '{names}' "
-            f"en el catálogo de Hexylon."
-        )
-    return context.strip()
+        return "\n".join([
+            "## Área funcional",
+            "",
+            f"- **Topic**: {names}",
+            "",
+            "## Resultado",
+            "",
+            "- No se ha encontrado documentación suficiente en el catálogo de Hexylon.",
+        ])
+
+    return "\n".join([
+        "## Área funcional",
+        "",
+        f"- **Topic**: {names}",
+        "",
+        "## Documentación disponible",
+        "",
+        context.strip(),
+    ])
 
 
 def format_unknown_answer(user_input: str) -> str:
-    """
-    Respuesta estándar para consultas fuera del dominio de la API Hexylon.
-
-    Parameters
-    ----------
-    user_input:
-        Petición original del usuario (usada para personalizar el mensaje).
-    """
-    _ = user_input  # reservado para personalización futura
-    return (
-        "Esta consulta está fuera del ámbito de la API Hexylon documentada.\n"
-        "Puedo ayudarte con:\n"
-        "  - Descripción y sintaxis de comandos SCPI del Hexylon.\n"
-        "  - Explicación de métricas de señal (MER, C/N, BER, etc.).\n"
-        "  - Áreas funcionales de la API: sintonía, espectro, perfiles, IPTV, etc.\n"
-        "  - Cómo realizar operaciones concretas sobre el equipo."
-    )
+    _ = user_input
+    return "\n".join([
+        "## Consulta fuera de dominio",
+        "",
+        "Esta consulta está fuera del ámbito de la API Hexylon documentada.",
+        "",
+        "## Capacidades disponibles",
+        "",
+        "- Descripción y sintaxis de comandos SCPI del Hexylon.",
+        "- Explicación de métricas de señal como **MER**, **C/N** o **BER**.",
+        "- Áreas funcionales de la API: sintonía, espectro, perfiles e IPTV.",
+        "- Generación de comandos SCPI válidos para el equipo.",
+    ])   
+    

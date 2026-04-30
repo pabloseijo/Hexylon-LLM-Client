@@ -33,15 +33,15 @@ class StepExpectation:
 
 
 @dataclass
-class TestStep:
+class ChatStep:
     user_input: str
     expectation: StepExpectation
 
 
 @dataclass
-class TestCase:
+class ChatCase:
     name: str
-    steps: list[TestStep]
+    steps: list[ChatStep]
 
 
 def reset_state() -> None:
@@ -79,7 +79,7 @@ def check_expectation(output: str, exp: StepExpectation) -> tuple[bool, list[str
     return len(errors) == 0, errors
 
 
-def run_test_case(case: TestCase) -> bool:
+def run_test_case(case: ChatCase) -> bool:
     print(f"\n{'=' * 80}")
     print(f"TEST: {case.name}")
     print(f"{'=' * 80}")
@@ -112,12 +112,12 @@ def run_test_case(case: TestCase) -> bool:
     return all_ok
 
 
-def build_test_cases() -> list[TestCase]:
+def build_test_cases() -> list[ChatCase]:
     return [
-        TestCase(
+        ChatCase(
             name="command_basico_potencia",
             steps=[
-                TestStep(
+                ChatStep(
                     user_input="dame la potencia actual",
                     expectation=StepExpectation(
                         contains_any=["dBµV", "dBuV", "dBm", "potencia"],
@@ -126,16 +126,16 @@ def build_test_cases() -> list[TestCase]:
                 ),
             ],
         ),
-        TestCase(
+        ChatCase(
             name="followup_contextual_sobre_valor",
             steps=[
-                TestStep(
+                ChatStep(
                     user_input="dame la potencia actual",
                     expectation=StepExpectation(
                         contains_any=["dBµV", "dBuV", "dBm", "potencia"],
                     ),
                 ),
-                TestStep(
+                ChatStep(
                     user_input="y esto es alto o bajo para una señal satelital?",
                     expectation=StepExpectation(
                         contains_any=[
@@ -150,10 +150,10 @@ def build_test_cases() -> list[TestCase]:
                 ),
             ],
         ),
-        TestCase(
+        ChatCase(
             name="knowledge_directo",
             steps=[
-                TestStep(
+                ChatStep(
                     user_input="qué hace el comando MER?",
                     expectation=StepExpectation(
                         contains_any=["MER", "comando", "mide", "devuelve"],
@@ -162,16 +162,16 @@ def build_test_cases() -> list[TestCase]:
                 ),
             ],
         ),
-        TestCase(
+        ChatCase(
             name="session_question_basica",
             steps=[
-                TestStep(
+                ChatStep(
                     user_input="mídeme POW cada 5 segundos durante 15 segundos",
                     expectation=StepExpectation(
                         contains_all=["Tarea lanzada:", "POW?"],
                     ),
                 ),
-                TestStep(
+                ChatStep(
                     user_input="qué estamos haciendo?",
                     expectation=StepExpectation(
                         contains_any=[
@@ -185,22 +185,22 @@ def build_test_cases() -> list[TestCase]:
                 ),
             ],
         ),
-        TestCase(
+        ChatCase(
             name="tasks_list_and_cancel",
             steps=[
-                TestStep(
+                ChatStep(
                     user_input="mídeme MER cada 5 segundos durante 30 segundos",
                     expectation=StepExpectation(
                         contains_all=["Tarea lanzada:", "MER?"],
                     ),
                 ),
-                TestStep(
+                ChatStep(
                     user_input="tareas activas",
                     expectation=StepExpectation(
                         contains_all=["Tareas activas:", "Tarea #1"],
                     ),
                 ),
-                TestStep(
+                ChatStep(
                     user_input="cancela la tarea",
                     expectation=StepExpectation(
                         contains_all=["cancelada"],
@@ -208,16 +208,16 @@ def build_test_cases() -> list[TestCase]:
                 ),
             ],
         ),
-        TestCase(
+        ChatCase(
             name="analysis_basico",
             steps=[
-                TestStep(
+                ChatStep(
                     user_input="mídeme POW y MER cada 5 segundos durante 15 segundos",
                     expectation=StepExpectation(
                         contains_all=["Tarea lanzada:", "POW?", "MER?"],
                     ),
                 ),
-                TestStep(
+                ChatStep(
                     user_input="resume la última medición",
                     expectation=StepExpectation(
                         contains_any=[

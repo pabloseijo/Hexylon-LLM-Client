@@ -4,7 +4,6 @@ import re
 from typing import Literal
 
 from llm.clients.ollama_client import ask_llm
-from llm.knowledge.command_catalog import command_exists
 from llm.core.scpi_normalizer import normalize_scpi_command
 from llm.knowledge.context_builder import build_knowledge_payload
 from llm.knowledge.query_classifier import classify
@@ -99,11 +98,15 @@ POW?
 
 def normalize_command(text: str) -> str:
     """
-    Normaliza la salida del modelo y conserva únicamente la primera línea útil.
+    Limpia la salida del modelo y conserva únicamente el primer candidato útil.
     """
-    lines = [line.strip() for line in text.strip().splitlines() if line.strip()]
-    return lines[0] if lines else "UNKNOWN"
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL | re.IGNORECASE)
+    text = text.replace("```scpi", "").replace("```", "")
+    text = text.replace('"', "").replace("'", "")
+    text = text.strip()
 
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    return lines[0] if lines else "UNKNOWN"
 
 def extract_command_name(scpi_text: str) -> str:
     """
@@ -120,16 +123,63 @@ def extract_command_name(scpi_text: str) -> str:
 
 def is_valid_scpi_output(scpi_text: str) -> bool:
     """
-    Verifica si la salida parece un comando SCPI documentado.
+    Valida la sintaxis completa del comando SCPI, no solo el nombre base.
     """
-    if scpi_text == "UNKNOWN":
+    command = normalize_scpi_command(scpi_text)
+
+    if command == "UNKNOWN":
         return True
 
-    if not scpi_text.strip():
-        return False
+    patterns = [
+        # Read-only / queries
+        r"^(MEAS|POW|CN|VA|MER|CBER|VBER|BCHBER|LKM|PER|SER|HUM|CSO|PREBER|POSTBER|PRELDPCBER|PREBCHBER|MSCBER|FICBER|CBERA|VBERA|CBERB|VBERB|CBERC|VBERC|CNBOOT|ECHOES|OPT_POW|OPT_POW_1310|OPT_POW_1490|OPT_POW_1550|PAR|LOCK|IDN|FREQ|BAND|CH|INPUT|LAMBDA|MODE|WIDGETS|LPROF|PROF|RBW|VBW|SPAN|RLEVEL|FSTR|ANT|EXTAMP|VDC|SERVICES)\?$",
 
-    command_name = extract_command_name(scpi_text)
-    return command_exists(command_name)
+        # Simple write commands
+        r"^IMAG$",
+        r"^ATT$",
+
+        # Tuning
+        r"^FREQ \d+(\.\d+)? (GHz|MHz|kHz)$",
+        r"^BAND (TER|SAT|FM|DAB)$",
+        r"^CH (UP|DOWN|[A-Za-z0-9_\-]+)$",
+
+        # Input / optical
+        r"^INPUT (RF|FO|IP|ASI|CVBS|TSP|ETI|EDI)$",
+        r"^LAMBDA (1310|1490|1550)$",
+
+        # Mode
+        r"^MODE TV( [1-4])?$",
+        r"^MODE RADIO( [1-3])?$",
+
+        # Profiles
+        r"^PROF [A-Za-z0-9_\-]+$",
+
+        # Spectrum
+        r"^RBW AUTO$",
+        r"^RBW \d+(\.\d+)? (HzW|KHzW|MHzW)$",
+        r"^VBW AUTO$",
+        r"^VBW \d+(\.\d+)? (Hz|KHz|MHz)$",
+        r"^SPAN \d+(\.\d+)? (KHz|MHz)$",
+        r"^RLEVEL AUTO$",
+        r"^RLEVEL \d+(\.\d+)? (dBuV|dBmV|dBm)$",
+        r"^HOLD (MAX ON|MAX OFF|MIN ON|MIN OFF|CLEAR)$",
+
+        # Services
+        r"^SERVICE \d+$",
+
+        # Utility
+        r"^FSTR (ON|OFF)$",
+        r"^ANT [A-Za-z0-9_\-]+$",
+        r"^EXTAMP [+-]?\d+(\.\d+)?$",
+        r"^VDC (AUTO|OFF|\d+V(\+22KHz)?)$",
+
+        # IPTV
+        r"^LCHIPTV$",
+        r"^ADDCHIPTV [A-Za-z0-9_\-]+ \d{1,3}(\.\d{1,3}){3} \d{1,3}(\.\d{1,3}){3} \d+$",
+        r"^DELCHIPTV [A-Za-z0-9_\-]+$",
+    ]
+
+    return any(re.fullmatch(pattern, command) for pattern in patterns)
 
 def keyword_mapping(user_input: str) -> str | None:
     text = user_input.lower()
@@ -214,6 +264,16 @@ def keyword_mapping(user_input: str) -> str | None:
     ):
         return "CN?"
 
+    if "ber" in text and any(term in text for term in [
+        "previo",
+        "pre",
+        "antes",
+        "antes de corrección",
+        "antes de correccion",
+        "antes del corrector",
+    ]):
+        return "CBER?"
+
     if "cber" in text:
         return "CBER?"
 
@@ -241,7 +301,7 @@ def keyword_mapping(user_input: str) -> str | None:
         if match:
             value = match.group(1)
             unit_map = {"hz": "HzW", "khz": "KHzW", "mhz": "MHzW"}
-            return f"RBW {value}{unit_map[match.group(2)]}"
+            return f"RBW {value} {unit_map[match.group(2)]}"
 
         return "RBW?"
 
@@ -253,7 +313,7 @@ def keyword_mapping(user_input: str) -> str | None:
         if match:
             value = match.group(1)
             unit_map = {"hz": "Hz", "khz": "KHz", "mhz": "MHz"}
-            return f"VBW {value}{unit_map[match.group(2)]}"
+            return f"VBW {value} {unit_map[match.group(2)]}"
 
         return "VBW?"
 
@@ -262,7 +322,7 @@ def keyword_mapping(user_input: str) -> str | None:
         if match:
             value = match.group(1)
             unit_map = {"khz": "KHz", "mhz": "MHz"}
-            return f"SPAN {value}{unit_map[match.group(2)]}"
+            return f"SPAN {value} {unit_map[match.group(2)]}"
 
         return "SPAN?"
 
@@ -278,7 +338,7 @@ def keyword_mapping(user_input: str) -> str | None:
                 "dbmv": "dBmV",
                 "dbm": "dBm",
             }
-            return f"RLEVEL {value}{unit_map[match.group(2)]}"
+            return f"RLEVEL {value} {unit_map[match.group(2)]}"
 
         return "RLEVEL?"
 
@@ -290,7 +350,7 @@ def keyword_mapping(user_input: str) -> str | None:
     if match and any(term in text for term in ["pon", "cambia", "sintoniza"]):
         value = match.group(1)
         unit_map = {"ghz": "GHz", "mhz": "MHz", "khz": "kHz"}
-        return f"FREQ {value}{unit_map[match.group(3)]}"
+        return f"FREQ {value} {unit_map[match.group(3)]}"
 
     if "frecuencia" in text:
         return "FREQ?"
@@ -467,14 +527,13 @@ def detect_intent(user_input: str) -> Intent:
     )
     
     
-
     if "ber" in text and any(term in text for term in [
         "previo",
+        "pre",
+        "antes",
         "antes de corrección",
         "antes de correccion",
         "antes del corrector",
-        "pre-corrección",
-        "pre corrección",
     ]):
         return "CBER?"
 
@@ -569,22 +628,26 @@ def generate_scpi(user_input: str) -> str:
 
     Flujo:
     1. Intenta resolver por reglas deterministas.
-    2. Si no aplica, usa el LLM con contexto dinámico en modo command.
-    3. Valida que la salida corresponda a un comando documentado.
-    4. Normaliza el formato final del comando SCPI.
+    2. Normaliza y valida la salida determinista.
+    3. Si no aplica, usa el LLM únicamente como candidato.
+    4. Normaliza la salida del LLM.
+    5. Valida la sintaxis SCPI completa.
+    6. Devuelve comando válido o UNKNOWN.
     """
     mapped = keyword_mapping(user_input)
-    if mapped is not None:
-        return normalize_scpi_command(mapped)
 
-    response = ask_llm(build_command_messages(user_input), num_predict=16)
+    if mapped is not None:
+        command = normalize_scpi_command(mapped)
+        return command if is_valid_scpi_output(command) else "UNKNOWN"
+
+    response = ask_llm(build_command_messages(user_input))
     command = normalize_command(response)
+    command = normalize_scpi_command(command)
 
     if not is_valid_scpi_output(command):
         return "UNKNOWN"
 
-    return normalize_scpi_command(command)
-
+    return command
 
 def answer_with_knowledge(user_input: str) -> str:
     """

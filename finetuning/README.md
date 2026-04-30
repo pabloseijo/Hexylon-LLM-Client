@@ -144,7 +144,7 @@ PYTHONPATH=src python3 finetuning/scripts/train_cpu_lora.py
 ### 5. Test del modelo entrenado
 
 ´´´
-PYTHONPATH=src python3 finetuning/scripts/test_cpu_lora.py
+PYTHONPATH=src python3 finetuning/scripts/run_cpu_lora_test.py
 ´´´
 
 ---
