@@ -5,11 +5,10 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
 # Evitar proxy en llamadas locales
-os.environ["NO_PROXY"] = "localhost,127.0.0.1,::1"
-os.environ["no_proxy"] = "localhost,127.0.0.1,::1"
+os.environ["NO_PROXY"] = "localhost,127.0.0.1,::1,10.113.0.148"
+os.environ["no_proxy"] = os.environ["NO_PROXY"]
 
-MCP_URL = os.getenv("MCP_URL", "http://127.0.0.1:8000/mcp")
-
+MCP_URL = "http://10.113.0.148:8814/mcp"
 
 class MCPClientError(Exception):
     """Error al comunicarse con el servidor MCP."""
