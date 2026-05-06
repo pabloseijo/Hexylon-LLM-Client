@@ -254,7 +254,7 @@ class TaskExecutor:
 
                 for command in self.plan.commands:
                     try:
-                        response = send_scpi_command(command)
+                        response = send_scpi_command(command, machine_id=self.plan.machine_id)
                         values[command] = response.strip()
                     except Exception as exc:
                         values[command] = f"ERROR: {exc}"

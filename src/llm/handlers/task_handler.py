@@ -113,16 +113,16 @@ def _on_task_complete(result: TaskResult) -> None:
 # Handlers públicos
 # ---------------------------------------------------------------------------
 
-def handle_launch_task(user_input: str) -> dict[str, Any] | str:
+def handle_launch_task(user_input: str, machine_id: str | None = None) -> dict[str, Any] | str:
     plan_or_error = try_plan_task(user_input)
 
     if isinstance(plan_or_error, str):
         return plan_or_error
 
     plan = plan_or_error
+    plan.machine_id = machine_id  # ← NUEVO
 
     launch_task(plan, on_complete=_on_task_complete)
-
     session_memory.set_last_task_id(plan.task_id)
 
     task_history.record_launched(
@@ -135,7 +135,12 @@ def handle_launch_task(user_input: str) -> dict[str, Any] | str:
     )
 
     return {
-        "message": f"## Tarea lanzada\n\n- **ID**: `{plan.task_id}`\n- **Descripción**: {plan.description}",
+        "message": (
+            f"## Tarea lanzada\n\n"
+            f"- **ID**: `{plan.task_id}`\n"
+            f"- **Descripción**: {plan.description}\n"
+            f"- **Máquina**: `{plan.machine_id or 'default'}`"
+        ),
         "task": {
             "task_id": plan.task_id,
             "description": plan.description,
@@ -143,10 +148,10 @@ def handle_launch_task(user_input: str) -> dict[str, Any] | str:
             "interval_seconds": plan.interval_seconds,
             "duration_seconds": plan.duration_seconds,
             "output_file": plan.output_file,
+            "machine_id": plan.machine_id,
             "status": "active",
         },
     }
-
 
 def handle_cancel_task(user_input: str) -> str:
     target_id, error = _resolve_task_id_for_cancel(user_input)

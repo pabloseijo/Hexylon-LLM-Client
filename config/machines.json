@@ -1,0 +1,5 @@
+{
+  "hexylon_a": "http://10.113.0.148:8814/mcp",
+  "hexylon_b": "http://10.113.0.148:8814/mcp",
+  "default": "hexylon_a"
+}

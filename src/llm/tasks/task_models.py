@@ -82,30 +82,6 @@ class TaskCondition:
 
 @dataclass
 class TaskPlan:
-    """
-    Plan de ejecución de una tarea de medición.
-
-    Attributes
-    ----------
-    commands:
-        Lista de comandos SCPI a ejecutar en cada iteración.
-    interval_seconds:
-        Intervalo entre iteraciones en segundos.
-    duration_seconds:
-        Duración total de la tarea en segundos.
-    output_file:
-        Ruta del fichero CSV donde se guardarán los resultados.
-    task_id:
-        Identificador único de la tarea.
-    description:
-        Descripción legible de la tarea.
-    created_at:
-        Timestamp de creación del plan.
-    alert_conditions:
-        Condiciones que generan alerta pero no detienen la tarea.
-    stop_conditions:
-        Condiciones que detienen automáticamente la tarea.
-    """
     commands: list[str]
     interval_seconds: float
     duration_seconds: float
@@ -115,13 +91,7 @@ class TaskPlan:
     created_at: datetime = field(default_factory=datetime.now)
     alert_conditions: list[TaskCondition] = field(default_factory=list)
     stop_conditions: list[TaskCondition] = field(default_factory=list)
-
-    @property
-    def total_iterations(self) -> int:
-        """Número total de iteraciones previstas."""
-        if self.interval_seconds <= 0:
-            return 0
-        return int(self.duration_seconds / self.interval_seconds)
+    machine_id: str | None = None  # ← NUEVO
 
     def __str__(self) -> str:
         lines = [
@@ -131,20 +101,17 @@ class TaskPlan:
             f"  Duración:    {self.duration_seconds}s",
             f"  Iteraciones: {self.total_iterations}",
             f"  Salida:      {self.output_file}",
+            f"  Máquina:     {self.machine_id or 'default'}",  # ← NUEVO
         ]
-
         if self.alert_conditions:
             lines.append("  Alertas:")
             for condition in self.alert_conditions:
                 lines.append(f"    - {condition}")
-
         if self.stop_conditions:
             lines.append("  Parada automática:")
             for condition in self.stop_conditions:
                 lines.append(f"    - {condition}")
-
         return "\n".join(lines)
-
 
 @dataclass
 class TaskMeasurement:
@@ -256,3 +223,4 @@ class TaskResult:
             lines.append(f"  Error:        {self.error}")
 
         return "\n".join(lines)
+    
