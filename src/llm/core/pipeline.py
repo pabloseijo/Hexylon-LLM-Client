@@ -8,6 +8,7 @@ from llm.memory.conversation_history import conversation_history
 from llm.handlers.command_handler import handle_command
 from llm.handlers.knowledge_handler import handle_knowledge
 from llm.handlers.session_handler import handle_session_question
+from llm.handlers.orchestrator_handler import handle_orchestrated_sequence 
 from llm.parsing.main_parser import parse_input
 from llm.handlers.analysis_handler import handle_analysis
 from llm.handlers.task_handler import (
@@ -75,6 +76,14 @@ def run_pipeline(user_input: str) -> dict[str, Any] | str:
 
     if parsed.intent == "list_tasks":
         response = handle_list_tasks()
+        conversation_history.add_assistant_message(response)
+        return response
+
+    if parsed.intent == "orchestrated_sequence":          # ← NUEVO
+        response = handle_orchestrated_sequence(user_input)
+        if isinstance(response, dict):
+            conversation_history.add_assistant_message(response["message"])
+            return response
         conversation_history.add_assistant_message(response)
         return response
 

@@ -1,5 +1,15 @@
 {
-  "hexylon_a": "http://10.113.0.148:8814/mcp",
-  "hexylon_b": "http://10.113.0.148:8814/mcp",
+  "hexylon_a": {
+    "url": "http://10.113.0.148:8814/mcp",
+    "type": "hexylon"
+  },
+  "hexylon_b": {
+    "url": "http://10.113.0.149:8814/mcp",
+    "type": "hexylon"
+  },
+  "generator": {
+    "url": "mock",
+    "type": "generator"
+  },
   "default": "hexylon_a"
 }

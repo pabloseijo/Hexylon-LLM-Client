@@ -106,6 +106,25 @@ SESSION_QUESTION_MARKERS = (
     "cual es el estado",
     "en qué fase estamos",
     "en que fase estamos",
+    
+    
+    # Ayuda sobre el asistente y sus capacidades
+    "cómo lanzo una tarea", "como lanzo una tarea",
+    "cómo programo una tarea", "como programo una tarea",
+    "cómo ejecuto una tarea", "como ejecuto una tarea",
+    "cómo lanzar una tarea", "como lanzar una tarea",
+    "cómo mido", "como mido",
+    "cómo puedo medir", "como puedo medir",
+    "cómo se lanza", "como se lanza",
+    "cómo uso las tareas", "como uso las tareas",
+    "qué puedes hacer", "que puedes hacer",
+    "cuáles son tus funciones", "cuales son tus funciones",
+    "qué eres", "que eres",
+    "para qué sirves", "para que sirves",
+    "ayuda", "help",
+    "cómo funciona", "como funciona",
+    "qué sé hacer", "que se hacer",
+    "qué sabes hacer", "que sabes hacer",
 )
 
 ANALYSIS_MARKERS = (
@@ -137,6 +156,44 @@ ANALYSIS_MARKERS = (
     "degrado",
 )
 
+SEQUENCE_MARKERS = (
+    "y después",
+    "y despues",
+    "y luego",
+    "y a continuación",
+    "y a continuacion",
+    "después mide",
+    "despues mide",
+    "después registra",
+    "despues registra",
+    "primero pon",
+    "primero configura",
+    "primero ajusta",
+    "y entonces mide",
+    "y entonces registra",
+    "una vez puesto",
+    "una vez configurado",
+    "cuando esté puesto",
+    "cuando este puesto",
+    "cuando esté listo",
+    "cuando este listo",
+    "y mide el",
+    "y mide la",
+    "y mide los",
+    "y después mide",
+    "y despues mide",
+    "y luego mide",
+    "y luego registra",
+)
+
+GENERATOR_MARKERS = (
+    "generador",
+    "generator",
+    "gen ",
+    "sgu",
+    "sgu100",
+)
+
 
 def strip_conversational_prefix(user_input: str) -> str:
     prefixes = (
@@ -156,7 +213,6 @@ def strip_conversational_prefix(user_input: str) -> str:
         "bueno ",
         "vale, ",
         "vale ",
-        "y ",
     )
 
     text = user_input.strip()
@@ -192,9 +248,21 @@ def _has_analysis_context() -> bool:
 def parse_input(user_input: str) -> ParsedIntent:
     normalized = strip_conversational_prefix(user_input)
     text = normalized.lower()
-
     task_id = extract_task_reference(normalized)
     metric = extract_metric(normalized)
+
+    # Secuencia multi-máquina — debe ir PRIMERO, antes que launch_task
+    has_generator = _has_marker(text, GENERATOR_MARKERS)
+    has_sequence = _has_marker(text, SEQUENCE_MARKERS)
+    has_measure = any(m in text for m in ("mide", "registra", "monitoriza", "medir"))
+
+    if has_generator and (has_sequence or has_measure):
+        return ParsedIntent(
+            intent="orchestrated_sequence",
+            normalized_input=normalized,
+            task_id=task_id,
+            metric=metric,
+        )
 
     if _has_marker(text, CANCEL_MARKERS):
         return ParsedIntent(

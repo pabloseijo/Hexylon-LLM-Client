@@ -12,18 +12,24 @@ os.environ["no_proxy"] = os.environ["NO_PROXY"]
 _MACHINES_FILE = Path(__file__).parents[3] / "config" / "machines.json"
 
 def _load_machines() -> dict:
-    with open(_MACHINES_FILE) as f:
+    path = Path(__file__).parents[3] / "config" / "machines.json"
+    with open(path) as f:
         return json.load(f)
 
 def get_machine_url(machine_id: str | None) -> str:
     machines = _load_machines()
     if machine_id is None:
-        machine_id = machines.get("default", "hexylon_a")
-    url = machines.get(machine_id)
-    if url is None:
-        raise MCPClientError(f"Máquina desconocida: '{machine_id}'. Disponibles: {list(machines.keys())}")
-    return url
-
+        machine_id = machines.get("default", next(
+            k for k in machines if k != "default"
+        ))
+    entry = machines.get(machine_id)
+    if entry is None:
+        available = [k for k in machines if k != "default"]
+        raise MCPClientError(
+            f"Máquina desconocida: '{machine_id}'. Disponibles: {available}"
+        )
+    # Soporta tanto string (formato anterior) como dict (formato nuevo)
+    return entry["url"] if isinstance(entry, dict) else entry
 
 class MCPClientError(Exception):
     """Error al comunicarse con el servidor MCP."""

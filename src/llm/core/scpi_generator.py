@@ -46,9 +46,13 @@ Tu tarea es responder preguntas técnicas sobre:
 - qué restricciones tiene
 - qué comandos están relacionados con una capacidad concreta
 - qué opciones ofrece una determinada área funcional de la API
+- Ejecutar las tareas proporcionadas por el usuario
+- Resumir y explicar las tareas realizadas
+- Graficar las tareas realizadas
 
 Reglas obligatorias:
-- Responde en español.
+- Detecta el idioma del mensaje del usuario y responde en ese mismo idioma.
+  Idiomas soportados: español, gallego, inglés. Si no puedes determinarlo, responde en español.
 - Responde de forma técnica, clara y precisa.
 - Usa exclusivamente el contexto documental proporcionado.
 - No inventes comandos, sintaxis, restricciones ni comportamientos.
@@ -500,6 +504,15 @@ def detect_intent(user_input: str) -> Intent:
         "tu función", "tu funcion",
         "qué eres", "que eres",
         "qué puedes hacer", "que puedes hacer",
+        
+        # Lanzamiento de tareas
+        "cómo lanzo una tarea", "como lanzo una tarea",
+        "cómo programo una tarea", "como programo una tarea",
+        "cómo ejecuto una tarea", "como ejecuto una tarea",
+        "cómo mido", "como mido",
+        "cómo puedo medir", "como puedo medir",
+        "cómo se lanza", "como se lanza",
+        "cómo uso las tareas", "como uso las tareas",
     ]
 
     # -------------------------------
