@@ -194,6 +194,34 @@ GENERATOR_MARKERS = (
     "sgu100",
 )
 
+SWEEP_MARKERS = (
+    "barrido",
+    "barre",
+    "barrer",
+    "sweep",
+    "recorre",
+    "recorrer",
+    "rampa",
+    "escanear",
+    "escanea",
+)
+
+FREQUENCY_MARKERS = (
+    "frecuencia",
+    "frecuencias",
+    "mhz",
+    "ghz",
+    "khz",
+    "hz",
+)
+
+STEP_MARKERS = (
+    "paso",
+    "pasos",
+    "saltos",
+    "incremento",
+    "incrementos",
+)
 
 def strip_conversational_prefix(user_input: str) -> str:
     prefixes = (
@@ -255,6 +283,17 @@ def parse_input(user_input: str) -> ParsedIntent:
     has_generator = _has_marker(text, GENERATOR_MARKERS)
     has_sequence = _has_marker(text, SEQUENCE_MARKERS)
     has_measure = any(m in text for m in ("mide", "registra", "monitoriza", "medir"))
+    has_sweep = _has_marker(text, SWEEP_MARKERS)
+    has_frequency = _has_marker(text, FREQUENCY_MARKERS)
+    has_step = _has_marker(text, STEP_MARKERS)
+
+    if has_sweep and has_frequency and (has_generator or has_measure or has_step):
+        return ParsedIntent(
+            intent="orchestrated_sequence",
+            normalized_input=normalized,
+            task_id=task_id,
+            metric=metric,
+        )
 
     if has_generator and (has_sequence or has_measure):
         return ParsedIntent(

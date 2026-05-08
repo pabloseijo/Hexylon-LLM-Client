@@ -75,6 +75,35 @@ def _extract_catalog_command(text: str) -> str | None:
 
     return None
 
+def _format_generator_command_es(info: dict) -> str:
+    lines = [
+        f"## Comando: `{info['name']}`",
+        f"\n**Dispositivo**: R&S SGU100A (Generador de señales)",
+        f"\n**Categoría**: {info.get('category', 'N/A')}",
+        f"\n## Descripción\n\n{info.get('description', '')}",
+    ]
+    read_syntax = info.get("read_syntax") or []
+    write_syntax = info.get("write_syntax") or []
+    if read_syntax or write_syntax:
+        lines.append("\n## Sintaxis")
+        for s in read_syntax + write_syntax:
+            lines.append(f"\n```scpi\n{s}\n```")
+    read_response = info.get("read_response")
+    if read_response:
+        lines.append(f"\n## Respuesta\n\n- {read_response}")
+    constraints = info.get("constraints") or []
+    if constraints:
+        lines.append("\n## Restricciones")
+        lines.extend(f"\n- {c}" for c in constraints)
+    notes = info.get("notes") or []
+    if notes:
+        lines.append("\n## Notas")
+        lines.extend(f"\n- {n}" for n in notes)
+    examples = info.get("examples") or []
+    if examples:
+        lines.append("\n## Ejemplos")
+        lines.extend(f"\n```scpi\n{e}\n```" for e in examples)
+    return "".join(lines)
 
 def handle_knowledge(user_input: str, normalized: str) -> str:
     session_log.log_knowledge_query(
@@ -82,40 +111,66 @@ def handle_knowledge(user_input: str, normalized: str) -> str:
         query_type="knowledge",
     )
 
+    # Si hay verbo operativo claro, redirigir a command_handler
+    # evita que "dame la potencia" devuelva la ficha técnica de POW
+    operative_verbs = [
+        "dame", "mide", "lee", "consulta", "ejecuta",
+        "dime", "muéstrame", "muestrame", "obtén", "obten",
+        "get", "read",
+    ]
+    if any(v in normalized.lower() for v in operative_verbs):
+        from llm.handlers.command_handler import handle_command
+        return handle_command(user_input, normalized)
+
+    # Preguntas sobre el propio asistente
+    self_query_markers = [
+        "qué puedes hacer", "que puedes hacer",
+        "cuáles son tus funciones", "cuales son tus funciones",
+        "qué eres", "que eres",
+        "quién eres", "quien eres",
+        "para qué sirves", "para que sirves",
+        "qué sabes hacer", "que sabes hacer",
+        "ayuda", "help",
+    ]
+    if any(marker in normalized.lower() for marker in self_query_markers):
+        messages = conversation_history.build_messages(
+            system_prompt=KNOWLEDGE_SYSTEM_PROMPT,
+            extra_user_content=user_input,
+        )
+        return _safe_ask_llm(
+            messages,
+            fallback="Soy un asistente técnico para el equipo Hexylon. Puedo ejecutar comandos SCPI, programar tareas de medición, analizar resultados y responder preguntas técnicas.",
+        )
+
     result = classify(normalized)
 
-    if result.query_type in (
-        "exact_command",
-        "metric_definition",
-        "unsupported",
-    ):
-        command_name = _extract_catalog_command(normalized)
+    if result.query_type in ("exact_command", "metric_definition", "unsupported"):
+        command_name = result.matched_command
 
-        if command_name:
+        if command_name and command_name.startswith("GEN:"):
+            from llm.knowledge.generator_command_catalog import get_generator_command_info
+            gen_name = command_name[4:]
+            info = get_generator_command_info(gen_name)
+            if info:
+                return _format_generator_command_es(info)
+
+        elif command_name:
             command = get_command_info(command_name)
             if command:
                 return format_command_info_es(command)
 
-        return (
-            "## Comando no encontrado\n\n"
-            "- No se ha encontrado un comando documentado en el catálogo para esta consulta.\n"
-            "- Indica explícitamente el comando SCPI, por ejemplo: `POW?`, `MER?` o `FREQ?`."
-        )
-
     payload = build_knowledge_payload(normalized, mode="knowledge")
-
     messages = conversation_history.build_messages(
         system_prompt=KNOWLEDGE_SYSTEM_PROMPT,
         extra_user_content=f"Contexto documental:\n{payload['context']}",
     )
-
     return _safe_ask_llm(
         messages,
         fallback=(
             "## Consulta documental\n\n"
-            "- No se ha podido completar la respuesta mediante LLM.\n"
-            "- El contexto documental fue localizado, pero la interpretación automática no está disponible temporalmente.\n\n"
-            "## Acción recomendada\n\n"
+            "- No se ha podido completar la respuesta.\n"
             "- Reintenta la consulta o especifica el comando SCPI concreto."
         ),
     )
+    
+    

@@ -366,6 +366,43 @@ TOPIC_CATALOG: dict[str, dict[str, Any]] = {
             "tensión",
         ],
     },
+    "generator": {
+        "name": "generator",
+        "description": "Comandos del generador de señales R&S SGU100A.",
+        "summary": (
+            "Incluye configuración de frecuencia RF, nivel de potencia, "
+            "activación de salida RF, control de sesión remota y aplicación "
+            "de configuración. Puerto TCP 5025."
+        ),
+        "commands": [
+            "SOURce:FREQuency:CW",
+            "SOURce:POWer:LEVel:IMMediate:AMPLitude",
+            "OUTPut:STATe",
+            "SOURce:SETTings:APPLy",
+            "*IDN",
+            "*RST",
+            "LOCK",
+            "UNL",
+        ],
+        "notes": [
+            "Frecuencia: rango 1 MHz a 40 GHz. Formas cortas: FREQ 2 GHz.",
+            "Potencia: rango -120 a 25 dBm. Forma corta: POW -10dBm.",
+            "OUTPut:STATe ON activa la salida RF.",
+            "SETTings:APPLy es obligatorio en modo upconverter.",
+            "Puerto TCP estándar SCPI: 5025.",
+        ],
+        "keywords": [
+            "generador", "generator", "sgu", "sgu100",
+            "potencia generador", "frecuencia generador",
+            "nivel generador", "output generador",
+            "salida rf", "rf output",
+            "freq generador", "pow generador",
+            "source power", "source frequency",
+            "outp stat", "settings apply",
+            "lock generador", "unl generador",
+            "upconverter", "señal generada",
+        ],
+    },
 }
 
 

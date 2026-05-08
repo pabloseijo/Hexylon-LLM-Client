@@ -27,6 +27,7 @@ TOPIC_PRIORITY: dict[str, int] = {
     "services": 55,
     "iptv": 50,
     "utility_and_capture": 45,
+    "generator": 98,
 }
 
 

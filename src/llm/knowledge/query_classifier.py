@@ -192,18 +192,28 @@ class ClassificationResult:
 
 
 def _extract_explicit_command(text: str) -> str | None:
-    """
-    Busca el nombre de un comando SCPI documentado de forma explícita.
-    Ordena por longitud descendente para que OPT_POW_1310 tenga preferencia
-    sobre OPT_POW.
-    """
     from llm.knowledge.command_catalog import COMMAND_CATALOG
-    sorted_names = sorted(COMMAND_CATALOG.keys(), key=len, reverse=True)
+    from llm.knowledge.generator_command_catalog import GENERATOR_COMMAND_CATALOG
+
     normalized = text.upper()
+
+    # Buscar primero en catálogo Hexylon
+    sorted_names = sorted(COMMAND_CATALOG.keys(), key=len, reverse=True)
     for name in sorted_names:
         pattern = rf"(?<![A-Z0-9_]){re.escape(name)}\??(?![A-Z0-9_])"
         if re.search(pattern, normalized):
             return name
+
+    # Buscar en catálogo del generador
+    sorted_gen = sorted(GENERATOR_COMMAND_CATALOG.keys(), key=len, reverse=True)
+    for name in sorted_gen:
+        clean = name.lstrip("*").replace(":", "").replace("[", "").replace("]", "")
+        if not clean:
+            continue
+        pattern = rf"(?<![A-Z0-9_]){re.escape(clean)}\??(?![A-Z0-9_])"
+        if re.search(pattern, normalized):
+            return f"GEN:{name}"
+
     return None
 
 

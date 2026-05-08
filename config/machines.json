@@ -8,7 +8,7 @@
     "type": "hexylon"
   },
   "generator": {
-    "url": "mock",
+    "url": "http://10.113.100.10/",
     "type": "generator"
   },
   "default": "hexylon_a"

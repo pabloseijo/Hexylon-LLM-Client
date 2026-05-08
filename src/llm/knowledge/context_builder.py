@@ -118,6 +118,26 @@ def build_knowledge_context(
     topic_context = get_topic_context(topic_names)
     if topic_context:
         blocks.append("TOPIC-SPECIFIC CONTEXT:\n" + topic_context.strip())
+        
+    # Incluir comandos del generador si la consulta los menciona
+    from llm.knowledge.generator_command_catalog import (
+        get_generator_command_context,
+        GENERATOR_COMMAND_CATALOG,
+    )
+
+    generator_names = [
+        k for k in GENERATOR_COMMAND_CATALOG.keys()
+        if k.lower().replace(":", "").replace("*", "") in user_input.lower().replace(":", "").replace("*", "")
+        or any(
+            alias.lower() in user_input.lower()
+            for alias in (GENERATOR_COMMAND_CATALOG[k].get("aliases") or [])
+        )
+    ]
+    
+    if generator_names:
+        gen_context = get_generator_command_context(generator_names)
+        if gen_context:
+            blocks.append("GENERATOR (R&S SGU100A) COMMAND CONTEXT:\n" + gen_context.strip())
 
     return "\n\n".join(blocks).strip()
 

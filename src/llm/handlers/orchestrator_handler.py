@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 from typing import Any
+from datetime import datetime
 
 from llm.clients.ollama_client import ask_llm
 from llm.tasks.orchestrator import (
@@ -38,92 +39,86 @@ Máquinas disponibles:
 Tipos de paso:
 - "command": envía un único comando SCPI y espera respuesta
 - "task": lanza una medición periódica con intervalo y duración
+- "sweep": barrido de frecuencias — configura el generador en cada paso y mide en el Hexylon
 
 ## Comandos del generador R&S SGU100A
 
 Frecuencia:
 - SOURce:FREQuency:CW <valor> — configura la frecuencia RF
-  Ejemplos: FREQ 2 GHz, FREQ 594 MHz, SOURce:FREQuency:CW 2000000000
-  Rango: 1 MHz a 40 GHz
+  Ejemplos: FREQ 2 GHz, FREQ 594 MHz
+  Rango: 10 MHz a 40 GHz
 
 Potencia/nivel:
-- SOURce:POWer:LEVel:IMMediate:AMPLitude <valor>dBm — configura el nivel RF
-  Ejemplos: POW -10dBm, POW 0dBm, SOURce:POWer:LEVel:IMMediate:AMPLitude -30dBm
+- SOURce:POWer:LEVel:IMMediate:AMPLitude <valor>dBm
+  Ejemplos: POW -10dBm, POW 0dBm
   Rango: -120 a 25 dBm
-- SOURce:POWer:POWer <valor> — configura el nivel sin considerar offset
-  Ejemplo: POW:POW 15
 
 Salida RF:
-- OUTPut:STATe ON / OUTPut:STATe OFF — activa/desactiva la salida RF
-- SETTings:APPLy — aplica la configuración (obligatorio en modo upconverter)
-
-Control de sesión:
-- LOCK? 12345 — bloquea el instrumento para control remoto exclusivo
-- UNL 12345 — libera el bloqueo
-- *RST — resetea el instrumento al estado por defecto
-- *IDN? — consulta la identificación del instrumento
-
-Nota sobre unidades:
-- Frecuencia: GHz, MHz, kHz, Hz son válidos
-- Potencia: siempre en dBm (no se admiten unidades lineales como V o W)
+- OUTPut:STATe ON / OUTPut:STATe OFF
+- SETTings:APPLy
 
 ## Comandos del Hexylon (lectura)
 
-POW?, MER?, CN?, CBER?, VBER?, LOCK?, FREQ?, MER?, LKM?, MEAS?
+POW?, MER?, CN?, CBER?, VBER?, LOCK?, FREQ?, LKM?, MEAS?
 
-## Debes devolver ÚNICAMENTE un array JSON válido con esta estructura:
+## Estructura JSON
 
-[
-  {
-    "step": 1,
-    "machine_id": "generator",
-    "machine_type": "generator",
-    "action": "command",
-    "command": "POW -10dBm"
-  },
-  {
-    "step": 2,
-    "machine_id": "generator",
-    "machine_type": "generator",
-    "action": "command",
-    "command": "OUTPut:STATe ON"
-  },
-  {
-    "step": 3,
-    "machine_id": "hexylon_a",
-    "machine_type": "hexylon",
-    "action": "task",
-    "commands": ["POW?"],
-    "interval_seconds": 5,
-    "duration_seconds": 600,
-    "description": "Medición de potencia cada 5 segundos durante 10 minutos"
-  }
-]
+Para pasos de tipo "command":
+{
+  "step": 1,
+  "machine_id": "generator",
+  "machine_type": "generator",
+  "action": "command",
+  "command": "POW -10dBm"
+}
+
+Para pasos de tipo "task":
+{
+  "step": 2,
+  "machine_id": "hexylon_a",
+  "machine_type": "hexylon",
+  "action": "task",
+  "commands": ["POW?"],
+  "interval_seconds": 5,
+  "duration_seconds": 120,
+  "description": "Medición de potencia cada 5 segundos durante 2 minutos"
+}
+
+Para pasos de tipo "sweep":
+{
+  "step": 1,
+  "machine_id_generator": "generator",
+  "machine_id_hexylon": "hexylon_a",
+  "action": "sweep",
+  "freq_start_mhz": 500,
+  "freq_stop_mhz": 800,
+  "freq_step_mhz": 50,
+  "dwell_seconds": 5,
+  "commands": ["POW?"]
+}
 
 Reglas obligatorias:
 - Devuelve SOLO el array JSON. Sin texto antes ni después. Sin bloques de código.
-- El orden de los pasos es el orden de ejecución — respeta la dependencia secuencial.
-- Para pasos de tipo "command": incluye solo "machine_id", "machine_type", "action", "command".
-- Para pasos de tipo "task": incluye "machine_id", "machine_type", "action", "commands", "interval_seconds", "duration_seconds", "description".
-- Añade '?' a los comandos de lectura del Hexylon si no lo tienen.
+- El orden de los pasos es el orden de ejecución.
+- Para sweep: freq_start_mhz, freq_stop_mhz y freq_step_mhz son obligatorios.
+- dwell_seconds es el tiempo de espera en cada frecuencia antes de medir (por defecto 5).
 - Los comandos de escritura del generador NO llevan '?'.
-- "interval_seconds" y "duration_seconds" deben ser números positivos.
-- Si el usuario menciona activar la salida del generador, añade OUTPut:STATe ON como paso previo a la medición.
+- Si el usuario menciona activar la salida del generador, añade OUTPut:STATe ON antes del sweep.
 - Si no puedes generar un plan válido, devuelve: [{"error": "motivo"}]
 
 Ejemplos de conversión:
 
-"pon la potencia en el generador a -10 dBm y después mide la potencia en hexylon_a cada 5 segundos durante 10 minutos"
+"barre el generador de 500 MHz a 800 MHz en pasos de 50 MHz y mide la potencia en hexylon_a"
+→ [
+    {"step": 1, "machine_id": "generator", "machine_type": "generator", "action": "command", "command": "OUTPut:STATe ON"},
+    {"step": 2, "machine_id_generator": "generator", "machine_id_hexylon": "hexylon_a", "action": "sweep", "freq_start_mhz": 500, "freq_stop_mhz": 800, "freq_step_mhz": 50, "dwell_seconds": 5, "commands": ["POW?"]}
+  ]
+
+"pon la potencia en el generador a -10 dBm y mide la potencia en hexylon_a cada 5 segundos durante 2 minutos"
 → [
     {"step": 1, "machine_id": "generator", "machine_type": "generator", "action": "command", "command": "POW -10dBm"},
     {"step": 2, "machine_id": "generator", "machine_type": "generator", "action": "command", "command": "OUTPut:STATe ON"},
-    {"step": 3, "machine_id": "hexylon_a", "machine_type": "hexylon", "action": "task", "commands": ["POW?"], "interval_seconds": 5, "duration_seconds": 600, "description": "Medición de potencia cada 5 segundos durante 10 minutos"}
-  ]
-
-"pon la frecuencia del generador a 2 GHz y mide el MER en hexylon_a cada 10 segundos durante 5 minutos"
-→ [
-    {"step": 1, "machine_id": "generator", "machine_type": "generator", "action": "command", "command": "FREQ 2 GHz"},
-    {"step": 2, "machine_id": "hexylon_a", "machine_type": "hexylon", "action": "task", "commands": ["MER?"], "interval_seconds": 10, "duration_seconds": 300, "description": "Medición de MER cada 10 segundos durante 5 minutos"}
+    {"step": 3, "machine_id": "hexylon_a", "machine_type": "hexylon", "action": "task", "commands": ["POW?"], "interval_seconds": 5, "duration_seconds": 120, "description": "Medición de potencia cada 5 segundos durante 2 minutos"}
   ]
 """.strip()
 
@@ -150,22 +145,22 @@ def _parse_sequence_plan(raw: str) -> list[dict]:
 def _build_steps(plan: list[dict]) -> list[SequenceStep]:
     from llm.tasks.task_models import TaskPlan
     from llm.tasks.task_planner import _build_output_filename, _get_output_dir
+    from llm.tasks.orchestrator import SweepStep
 
     steps: list[SequenceStep] = []
 
     for item in plan:
-        machine_id = item["machine_id"]
-        machine_type = item.get("machine_type", "hexylon")
         action = item["action"]
 
         if action == "command":
             steps.append(CommandStep(
-                machine_id=machine_id,
+                machine_id=item["machine_id"],
                 command=item["command"],
-                machine_type=machine_type,
+                machine_type=item.get("machine_type", "hexylon"),
             ))
 
         elif action == "task":
+            machine_id = item["machine_id"]
             commands = item["commands"]
             output_file = str(
                 _get_output_dir() / _build_output_filename(commands)
@@ -181,6 +176,30 @@ def _build_steps(plan: list[dict]) -> list[SequenceStep]:
             steps.append(TaskStep(
                 machine_id=machine_id,
                 plan=plan_obj,
+            ))
+
+        elif action == "sweep":
+            freq_start = float(item["freq_start_mhz"]) * 1e6
+            freq_stop  = float(item["freq_stop_mhz"])  * 1e6
+            freq_step  = float(item["freq_step_mhz"])  * 1e6
+            dwell      = float(item.get("dwell_seconds", 5.0))
+            commands   = item.get("commands", ["POW?"])
+
+            output_file = str(
+                _get_output_dir() /
+                f"sweep_{int(freq_start/1e6)}-{int(freq_stop/1e6)}MHz"
+                f"_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+            )
+
+            steps.append(SweepStep(
+                machine_id_generator=item.get("machine_id_generator", "generator"),
+                machine_id_hexylon=item.get("machine_id_hexylon", "hexylon_a"),
+                freq_start_hz=freq_start,
+                freq_stop_hz=freq_stop,
+                freq_step_hz=freq_step,
+                commands=commands,
+                dwell_seconds=dwell,
+                output_file=output_file,
             ))
 
     return steps
@@ -245,6 +264,14 @@ def handle_orchestrated_sequence(user_input: str) -> dict[str, Any] | str:
             result_lines.append(
                 f"- **Paso {sr['step']}** (`{sr['machine_id']}`): "
                 f"tarea `{sr['task_id']}` lanzada en background — "
+                f"resultados en `{sr['output_file']}`"
+            )
+        elif sr["type"] == "sweep":
+            result_lines.append(
+                f"- **Paso {sr['step']}** barrido de frecuencias: "
+                f"`{sr['freq_start_mhz']:.0f} MHz` → `{sr['freq_stop_mhz']:.0f} MHz` "
+                f"en pasos de `{sr['freq_step_mhz']:.0f} MHz` — "
+                f"**{sr['points']} puntos** medidos — "
                 f"resultados en `{sr['output_file']}`"
             )
             
