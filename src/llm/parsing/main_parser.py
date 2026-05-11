@@ -194,6 +194,32 @@ GENERATOR_MARKERS = (
     "sgu100",
 )
 
+GENERATOR_CONFIG_MARKERS = (
+    "pon",
+    "configura",
+    "ajusta",
+    "establece",
+    "fija",
+    "set",
+    "activa",
+    "desactiva",
+    "enciende",
+    "apaga",
+)
+
+GENERATOR_PARAMETER_MARKERS = (
+    "dbm",
+    "potencia",
+    "power",
+    "nivel",
+    "mhz",
+    "ghz",
+    "khz",
+    "frecuencia",
+    "salida",
+    "output",
+)
+
 SWEEP_MARKERS = (
     "barrido",
     "barre",
@@ -279,14 +305,26 @@ def parse_input(user_input: str) -> ParsedIntent:
     task_id = extract_task_reference(normalized)
     metric = extract_metric(normalized)
 
-    # Secuencia multi-máquina — debe ir PRIMERO, antes que launch_task
+    # Generador / secuencias multi-máquina — debe ir antes que launch_task
     has_generator = _has_marker(text, GENERATOR_MARKERS)
     has_sequence = _has_marker(text, SEQUENCE_MARKERS)
     has_measure = any(m in text for m in ("mide", "registra", "monitoriza", "medir"))
     has_sweep = _has_marker(text, SWEEP_MARKERS)
     has_frequency = _has_marker(text, FREQUENCY_MARKERS)
     has_step = _has_marker(text, STEP_MARKERS)
+    has_generator_config = _has_marker(text, GENERATOR_CONFIG_MARKERS)
+    has_generator_parameter = _has_marker(text, GENERATOR_PARAMETER_MARKERS)
 
+    # Ejemplo: "pon el generador a -20 dBm"
+    if has_generator and has_generator_config and has_generator_parameter:
+        return ParsedIntent(
+            intent="orchestrated_sequence",
+            normalized_input=normalized,
+            task_id=task_id,
+            metric=metric,
+        )
+
+    # Ejemplo: "barre el generador de 500 MHz a 800 MHz en pasos de 50 MHz y mide la potencia"
     if has_sweep and has_frequency and (has_generator or has_measure or has_step):
         return ParsedIntent(
             intent="orchestrated_sequence",

@@ -397,12 +397,79 @@ def launch_task(
 
     return executor
 
+class SweepExecutor:
+    """
+    Adaptador mínimo para mostrar un barrido como tarea activa en la UI.
+    Compatible con task_executor_to_api().
+    """
+
+    def __init__(self, plan: TaskPlan) -> None:
+        self.plan = plan
+        self._thread = threading.current_thread()
+        self._result: TaskResult | None = None
+
+    @property
+    def is_running(self) -> bool:
+        return True
+
+    @property
+    def result(self) -> TaskResult | None:
+        return self._result
+
+    def cancel(self) -> None:
+        # Cancelación no soportada todavía para SweepStep síncrono.
+        pass
+    
+def register_active_sweep(plan: TaskPlan) -> SweepExecutor:
+    executor = SweepExecutor(plan)
+
+    with _lock:
+        _active_tasks[plan.task_id] = executor  # type: ignore[assignment]
+
+    notify_event({
+        "type": "task_created",
+        "task_id": plan.task_id,
+        "data": task_executor_to_api(plan.task_id, executor),  # type: ignore[arg-type]
+    })
+
+    return executor
+
+
+def finish_active_sweep(result: TaskResult) -> None:
+    with _lock:
+        executor = _active_tasks.pop(result.plan.task_id, None)
+
+    if executor is not None:
+        try:
+            executor._result = result  # type: ignore[attr-defined]
+        except Exception:
+            pass
+
+    api_task = task_result_to_api(result)
+
+    if result.status == TaskStatus.COMPLETED:
+        event_type = "task_completed"
+    elif result.status == TaskStatus.CANCELLED:
+        event_type = "task_cancelled"
+    else:
+        event_type = "task_failed"
+
+    notify_event({
+        "type": event_type,
+        "task_id": result.plan.task_id,
+        "data": api_task,
+    })
+
 
 def get_active_tasks() -> dict[str, TaskExecutor]:
     """Devuelve una copia del registro de tareas activas."""
-    with _lock:
-        return dict(_active_tasks)
+    from llm.tasks.sweep_executor import get_active_sweeps
 
+    with _lock:
+        active = dict(_active_tasks)
+
+    active.update(get_active_sweeps())
+    return active
 
 def cancel_task(task_id: str) -> bool:
     """
@@ -415,7 +482,11 @@ def cancel_task(task_id: str) -> bool:
     """
     with _lock:
         executor = _active_tasks.get(task_id)
+
     if executor:
         executor.cancel()
         return True
-    return False
+
+    from llm.tasks.sweep_executor import cancel_sweep
+
+    return cancel_sweep(task_id)
