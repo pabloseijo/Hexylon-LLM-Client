@@ -394,7 +394,7 @@ def plan_task(user_input: str) -> TaskPlan:
         {"role": "user", "content": user_input},
     ]
 
-    raw_response = ask_llm(messages)
+    raw_response = ask_llm(messages, num_ctx=2048)
     return _parse_plan_response(raw_response, user_input)
 
 

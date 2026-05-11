@@ -653,7 +653,7 @@ def generate_scpi(user_input: str) -> str:
         command = normalize_scpi_command(mapped)
         return command if is_valid_scpi_output(command) else "UNKNOWN"
 
-    response = ask_llm(build_command_messages(user_input))
+    response = ask_llm(build_command_messages(user_input), num_ctx=512)
     command = normalize_command(response)
     command = normalize_scpi_command(command)
 
@@ -701,7 +701,7 @@ def answer_with_knowledge(user_input: str) -> str:
     # Cubre: how_to, broad_knowledge, topic sin contenido suficiente,
     # y exact_command/metric sin matched_command (clasificación débil).
 
-    response = ask_llm(build_knowledge_messages(user_input))
+    response = ask_llm(build_knowledge_messages(user_input), num_ctx=512)
     return response.strip()
 
 

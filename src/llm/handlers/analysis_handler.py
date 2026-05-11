@@ -40,7 +40,7 @@ Si una sección no aplica, indícalo dentro de ella.
 
 def _safe_ask_llm(messages: list[dict[str, str]], fallback: str) -> str:
     try:
-        return ask_llm(messages).strip()
+        return ask_llm(messages, num_ctx=4096).strip()
     except Exception as exc:
         print("ERROR_LLM_ANALYSIS:", repr(exc))
         return fallback

@@ -48,7 +48,7 @@ def route_intent(user_input: str) -> str:
     messages = conversation_history.build_messages(
         system_prompt=INTENT_ROUTER_SYSTEM_PROMPT,
     )
-    response = ask_llm(messages).strip().lower()
+    response = ask_llm(messages, num_ctx=512).strip().lower()
 
     if response in {"command", "knowledge"}:
         return response

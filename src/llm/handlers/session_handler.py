@@ -86,7 +86,7 @@ def handle_session_question(user_input: str) -> str:
             extra_user_content=user_input,
         )
         try:
-            return ask_llm(messages).strip()
+            return ask_llm(messages, num_ctx=1024).strip()
         except Exception as exc:
             print("ERROR_SESSION_LLM:", repr(exc))
             return (

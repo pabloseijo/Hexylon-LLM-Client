@@ -213,7 +213,7 @@ def handle_orchestrated_sequence(user_input: str) -> dict[str, Any] | str:
     ]
 
     try:
-        raw = ask_llm(messages)
+        raw = ask_llm(messages, num_ctx=2048)
         plan = _parse_sequence_plan(raw)
     except Exception as exc:
         return (

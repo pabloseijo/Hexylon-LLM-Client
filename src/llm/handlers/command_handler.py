@@ -25,7 +25,7 @@ Reglas:
 
 def _safe_ask_llm(messages: list[dict[str, str]], fallback: str) -> str:
     try:
-        return ask_llm(messages).strip()
+        return ask_llm(messages, num_ctx=1024).strip()
     except Exception as exc:
         print("ERROR_LLM_COMMAND:", repr(exc))
         return fallback

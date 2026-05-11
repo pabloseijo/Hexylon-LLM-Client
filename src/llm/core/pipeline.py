@@ -8,7 +8,7 @@ from llm.memory.conversation_history import conversation_history
 from llm.handlers.command_handler import handle_command
 from llm.handlers.knowledge_handler import handle_knowledge
 from llm.handlers.session_handler import handle_session_question
-from llm.handlers.orchestrator_handler import handle_orchestrated_sequence 
+from llm.handlers.orchestrator_handler import handle_orchestrated_sequence
 from llm.parsing.main_parser import parse_input
 from llm.handlers.analysis_handler import handle_analysis
 from llm.handlers.task_handler import (
@@ -16,6 +16,7 @@ from llm.handlers.task_handler import (
     handle_cancel_task,
     handle_list_tasks,
 )
+from llm.core.scpi_generator import keyword_mapping, detect_intent
 
 
 def _load_machine_names() -> list[str]:
@@ -32,20 +33,24 @@ def _extract_machine_id(user_input: str) -> str | None:
     if not machines:
         return None
 
-    prompt = (
-        f"Tienes estos equipos disponibles: {machines}.\n"
-        f'El usuario dice: "{user_input}"\n'
-        "¿A qué equipo se refiere el usuario? "
-        "Responde SOLO con el ID exacto del equipo (ej: hexylon_a) "
-        "o null si no especifica ninguno. Sin explicaciones."
-    )
+    text = user_input.lower()
 
-    try:
-        response = ask_llm([{"role": "user", "content": prompt}]).strip().lower()
-        if response in machines:
-            return response
-    except Exception:
-        pass
+    for machine in machines:
+        if machine.lower() in text:
+            return machine
+
+    aliases = {
+        "hexylon a": "hexylon_a",
+        "hexylon b": "hexylon_b",
+        "generador": "generator",
+        "generator": "generator",
+        "gen ": "generator",
+        "sgu": "generator",
+    }
+    for alias, machine_id in aliases.items():
+        if alias in text and machine_id in machines:
+            return machine_id
+
     return None
 
 
@@ -53,7 +58,6 @@ def run_pipeline(user_input: str) -> dict[str, Any] | str:
     conversation_history.add_user_message(user_input)
     parsed = parse_input(user_input)
     normalized = parsed.normalized_input
-
     machine_id = _extract_machine_id(user_input)
 
     if parsed.intent in ("analysis", "plot"):
@@ -79,7 +83,7 @@ def run_pipeline(user_input: str) -> dict[str, Any] | str:
         conversation_history.add_assistant_message(response)
         return response
 
-    if parsed.intent == "orchestrated_sequence":          # ← NUEVO
+    if parsed.intent == "orchestrated_sequence":
         response = handle_orchestrated_sequence(user_input)
         if isinstance(response, dict):
             conversation_history.add_assistant_message(response["message"])
@@ -95,11 +99,24 @@ def run_pipeline(user_input: str) -> dict[str, Any] | str:
         conversation_history.add_assistant_message(response)
         return response
 
-    routed_intent = route_intent(normalized)
-    if routed_intent == "knowledge":
+    # --- Enrutamiento command / knowledge ---
+    # detect_intent ya clasifica correctamente "que hace pow" como knowledge
+    # y "dame la potencia" como command, sin necesidad de llamar al LLM
+    scpi_intent = detect_intent(normalized)
+
+    if scpi_intent == "knowledge":
         response = handle_knowledge(user_input, normalized)
         conversation_history.add_assistant_message(response)
         return response
+
+    # Para comandos: si hay mapeo determinista saltamos route_intent
+    mapped = keyword_mapping(normalized)
+    if mapped is None:
+        routed_intent = route_intent(normalized)
+        if routed_intent == "knowledge":
+            response = handle_knowledge(user_input, normalized)
+            conversation_history.add_assistant_message(response)
+            return response
 
     response = handle_command(user_input, normalized, machine_id=machine_id)
     conversation_history.add_assistant_message(response)

@@ -17,8 +17,11 @@ session = requests.Session()
 session.trust_env = False
 
 
-def ask_llm(messages: list[dict[str, str]], fmt: dict[str, Any] | None = None) -> str:
-    
+def ask_llm(
+    messages: list[dict[str, str]],
+    fmt: dict[str, Any] | None = None,
+    num_ctx: int = 2048,
+) -> str:
     payload: dict[str, Any] = {
         "model": OLLAMA_MODEL,
         "messages": messages,
@@ -26,7 +29,7 @@ def ask_llm(messages: list[dict[str, str]], fmt: dict[str, Any] | None = None) -
         "think": False,
         "options": {
             "temperature": 0,
-            "num_ctx": 2048,
+            "num_ctx": num_ctx,
         },
     }
     
