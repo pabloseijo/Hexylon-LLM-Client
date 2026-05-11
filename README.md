@@ -1,643 +1,312 @@
+<div align="center">
+
+<img src="/docs/gsertel-logo.png" alt="Gsertel" width="200"/>
+
 # Hexylon LLM Client
 
-Cliente inteligente para control de equipos Hexylon mediante lenguaje natural, basado en una arquitectura desacoplada:
+**Control de equipos RF mediante lenguaje natural**
 
-LLM → MCP → Hexylon
+[![Python](https://img.shields.io/badge/Python-3.10.12-3776AB?style=flat&logo=python&logoColor=white)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688?style=flat&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![React](https://img.shields.io/badge/React-19-61DAFB?style=flat&logo=react&logoColor=black)](https://react.dev/)
+[![Ollama](https://img.shields.io/badge/LLM-qwen3.5%3A9b-FF6B35?style=flat&logo=ollama&logoColor=white)](https://ollama.com/)
+[![SCPI](https://img.shields.io/badge/Protocol-SCPI%20%2F%20MCP-4A90D9?style=flat)](https://en.wikipedia.org/wiki/Standard_Commands_for_Programmable_Instruments)
+[![Status](https://img.shields.io/badge/Status-Active-brightgreen?style=flat)](https://github.com/pabloseijo/Hexylon-LLM-Client)
 
----
+*Desarrollado en colaboración con [Gsertel](https://www.gsertel.com)*
 
-# Descripción general
-
-Este repositorio implementa la capa de inteligencia de negocio para el control de equipos RF Hexylon de Gsertel utilizando lenguaje natural.
-
-El sistema permite:
-
-- Ejecutar comandos SCPI sin conocer la sintaxis
-- Consultar documentación técnica de la API
-- Lanzar tareas de medición periódicas
-- Analizar resultados automáticamente
-- Mantener contexto conversacional durante la sesión
-- Visualizar tareas en una interfaz web
-- Recibir actualizaciones en tiempo real por WebSocket
-- Descargar resultados CSV generados por las tareas
-
-Arquitectura global:
-
-LLM → MCP → Hexylon
-
-Donde:
-
-- Hexylon expone una API SCPI sobre TCP en el puerto 5025
-- MCP actúa como pasarela transparente, sin lógica de negocio
-- Este cliente implementa toda la inteligencia, la planificación, la ejecución de tareas, la memoria y la interfaz de usuario
+</div>
 
 ---
 
+## Descripción
 
-# Capacidades actuales
+Hexylon LLM Client es un sistema de control inteligente para equipos de medición RF que permite operar el **medidor Hexylon (Gsertel)** y el **generador R&S SGU100A** mediante lenguaje natural, sin necesidad de conocer la sintaxis SCPI.
 
-El sistema soporta:
+El sistema combina un pipeline LLM local con un orquestador multi-equipo, tareas asíncronas, barridos de frecuencia automáticos y una interfaz web en tiempo real.
 
-## 1. Ejecución de comandos en lenguaje natural
-
-Ejemplo:
-
-"dame la potencia actual" → POW? → interpretación → respuesta técnica
-
----
-
-## 2. Consultas documentales (knowledge)
-
-Permite consultar:
-
-- Qué hace un comando
-- Qué devuelve
-- Qué métricas existen
-- Cómo funciona una parte del sistema
-- Qué restricciones tiene la API
-
-Con tres niveles de respuesta:
-
-- determinista mediante catálogo
-- semideterminista mediante topics
-- LLM con contexto documental controlado
-
----
-
-## 3. Tareas de medición asíncronas
-
-Ejemplo:
-
-"mídeme POW y MER cada 10 segundos durante 2 minutos"
-
-El sistema:
-
-- genera un TaskPlan mediante LLM
-- ejecuta la tarea en segundo plano
-- guarda resultados en CSV
-- permite cancelación y monitorización
-- expone el estado por API REST y WebSocket
-- refleja tareas activas en la interfaz web
-
----
-
-## 4. Análisis automático de resultados
-
-Incluye:
-
-- parseo robusto de CSV
-- cálculo de estadísticas
-- detección de tendencias
-- interpretación de resultados mediante LLM
-
----
-
-## 5. Memoria conversacional
-
-Sistema de memoria en 4 niveles:
-
-- Estado de sesión
-- Log de eventos
-- Historial persistente de tareas
-- Historial conversacional completo
-
-Permite:
-
-- follow-ups como "y eso qué significa"
-- contexto continuo durante la sesión
-- preguntas sobre el estado del sistema y de las tareas
-
----
-
-## 6. Interfaz web en tiempo real
-
-La interfaz web permite:
-
-- enviar mensajes al pipeline
-- ver tareas activas
-- ver estados de tareas
-- recibir eventos del sistema en tiempo real
-- descargar CSV generados
-- visualizar respuestas estructuradas en markdown
-
-Características técnicas:
-
-- React + TypeScript + Vite
-- WebSocket para sincronización en tiempo real
-- Renderizado markdown con soporte GFM
-- Layout centrado (max-width controlado)
-- Componentización por roles (user, assistant, system)
-
----
-
-## 7. Interfaz conversacional avanzada
-
-La interfaz web implementa un modelo de interacción tipo chat moderno con:
-
-- Renderizado completo en markdown (títulos, listas, código)
-- Layout centrado con ancho máximo (1080px)
-- Animación progresiva de escritura (typewriter)
-- Indicador de respuesta en tiempo real (animación tipo “respiración”)
-- Separación visual clara entre usuario, sistema y asistente
-- Estilo consistente con sistema de diseño corporativo
-
-Esto permite una experiencia más legible, estructurada y cercana a herramientas modernas de interacción con LLM.
-
----
-
-# Arquitectura interna
-
-## Pipeline principal
-
-Orden de evaluación:
-
-1. Análisis post-tarea
-2. Pregunta sobre la sesión
-3. Cancelar tarea
-4. Listar tareas
-5. Lanzar tarea
-6. Knowledge
-7. Command (SCPI)
-8. Interpretación formateada (markdown)
-
----
-
-## Flujo de ejecución
-
-Usuario → Pipeline → LLM (si aplica) → MCP → Hexylon → Interpretación → Usuario
-
----
-
-# Estructura del proyecto
-
-## src/api/
-
-server.py  
-Servidor FastAPI que expone la API REST y el WebSocket para la interfaz web
-
-task_notifier.py  
-Puente entre el código síncrono de tareas y el sistema de notificaciones del backend
-
----
-
-## src/llm/clients/
-
-ollama_client.py  
-Cliente HTTP para el LLM
-
-mcp_client.py  
-Cliente de comunicación con MCP
-
----
-
-## src/llm/core/
-
-pipeline.py  
-Orquestador principal del sistema
-
-scpi_generator.py  
-Generación de comandos SCPI
-
-intent_router.py  
-Enrutado semántico entre command y knowledge
-
-interpreter.py  
-Interpretación de respuestas SCPI
-
----
-
-## src/llm/knowledge/
-
-Sistema documental estructurado
-
-- command_catalog.py
-- topic_catalog.py
-- context_builder.py
-- command_selector.py
-- topic_selector.py
-- query_classifier.py
-- response_formatter.py
-
----
-
-## src/llm/memory/
-
-Sistema de memoria en múltiples niveles
-
-session_memory.py  
-Estado operativo inmediato
-
-session_log.py  
-Eventos estructurados en memoria
-
-task_history.py  
-Historial persistente en disco
-
-conversation_history.py  
-Historial conversacional compatible con el LLM
-
----
-
-## src/llm/tasks/
-
-Sistema de ejecución de tareas
-
-task_planner.py  
-Conversión LLM → TaskPlan estructurado
-
-task_executor.py  
-Ejecución en hilo separado
-
-csv_writer.py  
-Persistencia incremental
-
-task_analyzer.py  
-Análisis de resultados
-
-task_models.py  
-Modelos de datos
-
-condition_evaluator.py  
-Evaluación determinista de condiciones de alerta y parada
-
----
-
-## src/llm/normalization/
-
-unit_normalizer.py  
-Normalización de unidades y valores
-
----
-
-## ui/
-
-Interfaz web React + TypeScript + Vite
-
-### ui/src/components/
-
-Chat.tsx  
-Consola principal de interacción
-
-TaskPanel.tsx  
-Panel lateral de tareas
-
-MessageBubble.tsx  
-Render de mensajes de conversación
-
-### ui/src/hooks/
-
-useWebSocket.ts  
-Gestión de conexión WebSocket y reconexión
-
-### ui/src/api/
-
-client.ts  
-Cliente HTTP frontend para consumir el backend
-
-### ui/src/types.ts
-
-Tipos compartidos del frontend
-
----
-
-## scripts/
-
-chat_pipeline.py  
-Chat CLI interactivo del pipeline
-
-run_pipeline.py  
-Ejecución directa del pipeline
-
-run.sh  
-Arranque conjunto de backend y frontend
-
----
-
-## test/
-
-Pruebas de integración
-
-test_chat_flows.py  
-Validación de comportamiento conversacional completo
-
----
-
-# Sistema de tareas
-
-Flujo general:
-
-1. El usuario define una tarea en lenguaje natural
-2. El LLM genera un TaskPlan estructurado
-3. El TaskExecutor lanza la tarea en un hilo separado
-4. Se ejecutan comandos SCPI periódicamente
-5. Se guardan resultados en CSV
-6. Se actualiza memoria y logs
-7. El backend emite eventos de tarea por WebSocket
-8. La interfaz web sincroniza el estado en tiempo real
-
-Características principales:
-
-- cancelación inmediata
-- múltiples tareas concurrentes
-- escritura incremental en CSV
-- análisis posterior de resultados
-- eventos task_created, task_completed, task_cancelled, task_failed y task_alert
-- consulta de tareas activas por REST
-- representación estructurada en la interfaz (markdown + bloques)
-
----
-
-# Sistema de memoria
-
-## Nivel 1 — session_memory
-
-Estado inmediato:
-
-- última tarea lanzada
-- última tarea completada
-- último CSV
-- última métrica
-
----
-
-## Nivel 2 — session_log
-
-Eventos estructurados:
-
-- TASK_LAUNCHED
-- TASK_COMPLETED
-- TASK_CANCELLED
-- TASK_FAILED
-- TASK_ALERT_TRIGGERED
-- COMMAND_SENT
-- KNOWLEDGE_QUERY
-- SESSION_QUESTION
-
----
-
-## Nivel 3 — task_history
-
-Persistencia en disco:
-
-~/.hexylon/task_history.jsonl
-
----
-
-## Nivel 4 — conversation_history
-
-Historial conversacional completo:
-
-- máximo 20 turnos
-- formato compatible con el cliente LLM
-- usado en respuestas narrativas e interpretativas
-
----
-
-# Sistema de conocimiento
-
-No se utiliza un prompt monolítico.
-
-El sistema:
-
-1. clasifica la consulta
-2. selecciona comandos relevantes
-3. selecciona topics relevantes
-4. construye contexto dinámico
-5. ejecuta el LLM con el contexto mínimo necesario
-
-Ventajas:
-
-- menor consumo de tokens
-- mayor precisión
-- menor alucinación
-- mayor control del contexto inyectado
-
----
-
-# API del backend
-
-## Endpoints principales
-
-POST /chat  
-Envía un mensaje al pipeline y devuelve la respuesta interpretada.  
-Si la petición genera una tarea, también devuelve la metadata de la tarea.
-
-GET /tasks  
-Devuelve las tareas activas actuales.
-
-DELETE /tasks/{task_id}  
-Cancela una tarea activa.
-
-GET /tasks/history  
-Devuelve historial persistente de tareas.
-
-GET /health  
-Healthcheck básico del backend.
-
-GET /download?file=...  
-Descarga un CSV generado por una tarea.
-
-WS /ws  
-Canal WebSocket para eventos en tiempo real.
-
-## Eventos WebSocket
-
-El backend emite:
-
-- task_created
-- task_completed
-- task_cancelled
-- task_failed
-- task_alert
-
----
-
-# Ejecución
-
-## 1. Ejecutar backend + frontend juntos
-
-Desde la raíz del proyecto:
-```bash
-    ./scripts/run.sh
 ```
-
-Esto arranca:
-
-- Backend FastAPI en http://127.0.0.1:8001
-- Frontend Vite en http://127.0.0.1:5173
-
----
-
-## 2. Ejecutar solo el backend
-
-Desde la raíz del proyecto:
-
-```bash
-    PYTHONPATH=src uvicorn src.api.server:app --reload --port 8001
+Usuario  →  LLM Pipeline  →  Orquestador  →  MCP  →  Hexylon (SCPI)
+                                          →  TCP Socket  →  R&S SGU100A (SCPI)
 ```
 
 ---
 
-## 3. Ejecutar solo el frontend
+## Interfaz
 
-Desde el directorio ui:
+![Hexylon LLM Interface](docs/screenshot.png)
+
+*Barrido de frecuencias 500–600 MHz con análisis automático y gráfica interactiva*
+
+---
+
+## Capacidades
+
+| Capacidad | Ejemplo de prompt |
+|-----------|-------------------|
+| 📡 Comandos SCPI | `"dame la potencia actual"` |
+| ⚡ Control del generador | `"pon el generador a -10 dBm y 600 MHz"` |
+| 🔗 Secuencias multi-equipo | `"pon el generador a -10 dBm y mide la potencia en hexylon_a cada 5s durante 2 min"` |
+| 📈 Barrido de frecuencias | `"barre el generador de 500 MHz a 800 MHz en pasos de 50 MHz y mide la potencia"` |
+| ⏱️ Tareas periódicas | `"mide MER y POW cada 10s durante 2 minutos y avísame si MER baja de 20 dB"` |
+| 📊 Análisis y gráficas | `"grafícame la última tarea"` |
+| 📚 Consultas documentales | `"qué hace POW?"`, `"qué devuelve SOURce:FREQuency:CW"` |
+| 🌐 Multiidioma | Español · Gallego · Inglés |
+
+---
+
+## Arquitectura
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Usuario / Frontend                    │
+└───────────────────────────┬─────────────────────────────┘
+                            │ POST /chat · WS /ws
+┌───────────────────────────▼─────────────────────────────┐
+│                  FastAPI Backend                         │
+└───────────────────────────┬─────────────────────────────┘
+                            │
+┌───────────────────────────▼─────────────────────────────┐
+│                    pipeline.py                           │
+│              parse_input() → intent                      │
+└──┬──────────┬──────────┬──────────┬──────────┬──────────┘
+   │          │          │          │          │
+   ▼          ▼          ▼          ▼          ▼
+command   knowledge  launch_task  orchestrated  analysis
+handler   handler    handler      _sequence     handler
+   │                    │              │
+   ▼                    ▼              ▼
+scpi_generator      task_executor  orchestrator.py
+   │                    │          ┌──┴──────────┐
+   ▼                    ▼          ▼             ▼
+MCP client          CSV Writer  CommandStep   SweepStep
+   │                             generator    generator
+   ▼                             client.py  + mcp_client
+Hexylon                          │             │
+(TCP 8814)                       ▼             ▼
+                              SGU100A       Hexylon
+                              (TCP 5025)  (TCP 8814)
+```
+
+### Equipos soportados
+
+| Equipo | Fabricante | Protocolo | Puerto | Cliente |
+|--------|-----------|-----------|--------|---------|
+| Hexylon | Gsertel | MCP / HTTP | 8814 | `mcp_client.py` |
+| SGU100A | Rohde & Schwarz | SCPI TCP Socket | 5025 | `generator_client.py` |
+
+---
+
+## Requisitos
+
+- Python **3.10.12**
+- Node.js ≥ 18 + npm
+- [Ollama](https://ollama.com/) con modelo `qwen3.5:9b`
+- Acceso de red al Hexylon (MCP en puerto 8814)
+- Acceso de red al R&S SGU100A (SCPI en puerto 5025)
+
+---
+
+## Instalación
 
 ```bash
-    npm install
-    npm run dev -- --host 127.0.0.1 --port 5173
+git clone https://github.com/pabloseijo/Hexylon-LLM-Client
+cd Hexylon-LLM-Client
+pip install -r requirements.txt
+cd ui && npm install && cd ..
 ```
 
 ---
 
-## 4. Ejecutar el chat CLI
+## Configuración
 
-Desde la raíz del proyecto:
+### Variables de entorno
+
+| Variable | Por defecto | Descripción |
+|----------|-------------|-------------|
+| `OLLAMA_URL` | `http://10.115.0.71:11434/api/chat` | Servidor Ollama |
+| `OLLAMA_MODEL` | `qwen3.5:9b` | Modelo LLM |
+| `MCP_URL` | `http://10.113.0.148:8814/mcp` | MCP del Hexylon |
+
+### Máquinas (`config/machines.json`)
+
+```json
+{
+  "hexylon_a": { "url": "http://10.113.0.148:8814/mcp", "type": "hexylon" },
+  "hexylon_b": { "url": "http://10.113.0.149:8814/mcp", "type": "hexylon" },
+  "generator":  { "url": "http://10.113.100.10",         "type": "generator" },
+  "default": "hexylon_a"
+}
+```
+
+Para añadir un nuevo equipo basta con añadir una entrada en este fichero.
+
+---
+
+## Ejecución
+
+### Backend + frontend
 
 ```bash
-    PYTHONPATH=src python3 scripts/chat_pipeline.py
+./scripts/run.sh
+```
+
+| Servicio | URL |
+|----------|-----|
+| Frontend | http://127.0.0.1:5173 |
+| Backend API | http://127.0.0.1:8001 |
+| Documentación API | http://127.0.0.1:8001/docs |
+
+### Solo backend
+
+```bash
+PYTHONPATH=src uvicorn src.api.server:app --reload --port 8001
+```
+
+### Chat CLI
+
+```bash
+PYTHONPATH=src python3 scripts/chat_pipeline.py
+```
+
+### Tests
+
+```bash
+PYTHONPATH=src pytest
 ```
 
 ---
 
-## 5. Ejecutar el pipeline directamente
+## API REST
 
-Desde la raíz del proyecto:
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| `POST` | `/chat` | Envía un mensaje al pipeline |
+| `GET` | `/tasks` | Lista las tareas activas |
+| `DELETE` | `/tasks/{task_id}` | Cancela una tarea |
+| `GET` | `/tasks/history` | Historial persistente |
+| `GET` | `/download?file=...` | Descarga un CSV |
+| `GET` | `/health` | Healthcheck |
+| `WS` | `/ws` | Eventos en tiempo real |
 
-```bash
-    PYTHONPATH=src python3 scripts/run_pipeline.py
+### Eventos WebSocket
+
+| Evento | Descripción |
+|--------|-------------|
+| `task_created` | Nueva tarea lanzada |
+| `task_completed` | Tarea finalizada |
+| `task_cancelled` | Tarea cancelada |
+| `task_failed` | Tarea fallida |
+| `task_alert` | Condición de alerta disparada |
+
+---
+
+## Rangos del R&S SGU100A
+
+| Parámetro | Rango | Incremento |
+|-----------|-------|------------|
+| Frecuencia | 10 MHz – 40 GHz | 1 mHz |
+| Potencia | −120 dBm – +25 dBm | 0.01 dBm |
+
+```scpi
+FREQ 500 MHz          → Configura frecuencia
+POW -10dBm            → Configura potencia
+OUTPut:STATe ON       → Activa salida RF
+SETTings:APPLy        → Aplica configuración
+*IDN?                 → Identificación
 ```
 
 ---
 
-# Pruebas
+## Estructura del proyecto
 
-## Ejecutar batería principal
-
-Desde la raíz del proyecto:
-
-```bash
-    PYTHONPATH=src python3 test/test_chat_flows.py
+```
+Hexylon-LLM-Client/
+├── config/
+│   └── machines.json                    # IPs y tipos de equipos
+├── src/
+│   ├── api/
+│   │   ├── server.py                    # FastAPI — REST + WebSocket
+│   │   ├── task_notifier.py             # Puente tareas ↔ WebSocket
+│   │   └── task_presenter.py            # Serialización de tareas
+│   └── llm/
+│       ├── clients/
+│       │   ├── mcp_client.py            # Cliente MCP → Hexylon
+│       │   ├── generator_client.py      # Cliente SCPI TCP → SGU100A
+│       │   └── ollama_client.py         # Cliente HTTP → Ollama
+│       ├── core/
+│       │   ├── pipeline.py              # Orquestador principal
+│       │   ├── scpi_generator.py        # Generación de comandos SCPI
+│       │   └── scpi_normalizer.py       # Validación SCPI
+│       ├── handlers/
+│       │   ├── command_handler.py       # Comandos SCPI directos
+│       │   ├── knowledge_handler.py     # Consultas documentales
+│       │   ├── task_handler.py          # Ciclo de vida de tareas
+│       │   ├── orchestrator_handler.py  # Secuencias y sweeps
+│       │   ├── analysis_handler.py      # Análisis de CSV
+│       │   └── session_handler.py       # Estado de sesión
+│       ├── knowledge/
+│       │   ├── command_catalog.py           # Comandos Hexylon
+│       │   ├── generator_command_catalog.py # Comandos SGU100A
+│       │   ├── topic_catalog.py             # Topics documentales
+│       │   ├── query_classifier.py          # Clasificación de consultas
+│       │   └── context_builder.py           # Contexto dinámico para LLM
+│       ├── memory/
+│       │   ├── session_memory.py        # Estado operativo inmediato
+│       │   ├── task_history.py          # Historial persistente (JSONL)
+│       │   └── conversation_history.py  # Historial conversacional
+│       ├── parsing/
+│       │   └── main_parser.py           # Parser de intención del usuario
+│       └── tasks/
+│           ├── task_planner.py          # LLM → TaskPlan estructurado
+│           ├── task_executor.py         # Ejecución asíncrona de tareas
+│           ├── sweep_executor.py        # Barridos de frecuencia
+│           ├── orchestrator.py          # Orquestador multi-máquina
+│           ├── task_analyzer.py         # Análisis estadístico
+│           └── task_plotter.py          # Generación de gráficos
+├── ui/                                  # Frontend React + Vite
+├── deploy/                              # Paquetes de despliegue en Hexylon
+│   └── hexylon-mcp/
+│       └── guia.md                      # Guía de despliegue del servidor MCP
+├── tmp/
+│   ├── orchestrator.log                 # Log de secuencias con timestamps
+│   └── generator.log                    # Log de comandos al generador
+├── output/                              # CSVs y gráficos generados
+├── scripts/
+│   ├── run.sh                           # Arranca backend + frontend
+│   └── deploy_hexylon.sh                # Despliega MCP en el Hexylon
+├── requirements.txt
+└── pytest.ini
 ```
 
-Casos cubiertos:
+---
 
-- comandos básicos
-- follow-ups contextuales
-- knowledge
-- gestión de tareas
-- análisis de resultados
-- preguntas de sesión
+## Validación de secuencialidad
+
+Los logs en `tmp/` permiten verificar que la ejecución es siempre secuencial:
+
+```log
+[2026-05-08 11:13:59.224] step=1 machine=generator  command='POW -10dBm'        status=STARTED
+[2026-05-08 11:13:59.225] step=1 machine=generator  command='POW -10dBm'        status=OK
+[2026-05-08 11:13:59.233] step=2 machine=hexylon_a  task='task_20260508_111359' status=LAUNCHED
+```
+
+El paso 2 arranca **8 ms** después de que el paso 1 confirma OK.
 
 ---
 
-# Requisitos
+## Principios de diseño
 
-Entorno previsto:
-
-- Python 3.10 o superior
-- Node.js y npm para la interfaz web
-- acceso al MCP configurado
-- acceso al equipo Hexylon a través del MCP
-- LLM accesible desde el cliente
+- **Separación estricta** — MCP sin lógica, LLM solo donde aporta valor, ejecución determinista
+- **Control del LLM** — outputs validados, prompts restrictivos, contexto mínimo necesario
+- **Multi-equipo extensible** — añadir un nuevo equipo es editar `machines.json` y crear un cliente
+- **Observabilidad** — logs con timestamps para validar secuencialidad y depurar errores
+- **Sin bloqueos** — tareas y sweeps ejecutados en background, chat siempre disponible
 
 ---
 
-# Principios de diseño
+<div align="center">
 
-## Separación estricta
+Desarrollado por **Pablo Seijo** · Gsertel · 2026
 
-- MCP sin lógica
-- LLM como capa de inteligencia
-- ejecución determinista en tasks
-- UI separada del backend
-
----
-
-## Control del LLM
-
-- uso solo donde aporta valor
-- validación de outputs
-- prompts restrictivos
-- reducción del contexto a lo estrictamente necesario
-
----
-
-## Determinismo
-
-- parsing de CSV
-- ejecución de tareas
-- condiciones y alertas
-- estructura de memoria
-- sincronización de tareas desde backend como fuente de verdad
-
----
-
-## Arquitectura extensible
-
-- modularidad clara
-- responsabilidades aisladas
-- fácil evolución
-- backend y frontend desacoplados
-
----
-
-## Presentación estructurada
-
-- uso obligatorio de markdown en respuestas LLM
-- separación semántica de contenido
-- consistencia visual entre mensajes
-- priorización de legibilidad técnica sobre densidad
-
----
-# Sistema de renderizado
-
-Las respuestas del LLM no se presentan como texto plano.
-
-Se aplica un sistema de renderizado basado en:
-
-- markdown estructurado
-- estilos tipográficos controlados
-- bloques de código diferenciados
-- listas semánticas
-
-Esto permite:
-
-- mejorar la legibilidad técnica
-- evitar ambigüedad en comandos
-- separar claramente contenido funcional y descriptivo
-
----
-
-# Estado actual
-
-Sistema funcional con:
-
-- pipeline completo operativo
-- memoria conversacional integrada
-- tareas asíncronas estables
-- análisis automático funcional
-- interfaz web operativa
-- sincronización REST + WebSocket estable
-- descarga de CSV desde la UI
-- contrato frontend/backend alineado
-- renderizado markdown completo en frontend
-- animaciones de escritura en respuestas del LLM
-- indicador visual de procesamiento en tiempo real
-- layout UI unificado con ancho máximo controlado
-
----
-
-# Líneas futuras
-
-- tipado estricto de eventos WebSocket
-- persistencia completa de tareas finalizadas, canceladas y fallidas en endpoint dedicado
-- logging estructurado avanzado
-- tests frontend y end-to-end
-- optimización de prompts
-- consolidación del modelo de estado de tareas
-- mejoras en streaming de tokens y render progresivo
----
-
-# Autoría
-
-Desarrollado como sistema de control inteligente para equipos Hexylon en entorno de ingeniería Televes, basado en LLM + MCP.
+</div>
