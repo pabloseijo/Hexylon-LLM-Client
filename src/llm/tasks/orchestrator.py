@@ -28,6 +28,7 @@ from llm.clients.mcp_client import MCPClientError, send_scpi_command
 from llm.tasks.task_models import TaskPlan, TaskStatus
 from llm.tasks.task_executor import launch_task
 from llm.tasks.sweep_executor import SweepPlan, launch_sweep
+from llm.tasks.matrix_sweep_executor import MatrixSweepPlan, launch_matrix_sweep
 
 _LOG_PATH = Path(__file__).parents[3] / "tmp" / "orchestrator.log"
 
@@ -82,9 +83,21 @@ class SweepStep:
     dwell_seconds: float = 5.0    # tiempo de espera en cada frecuencia antes de medir
     output_file: str = ""
 
-SequenceStep = CommandStep | TaskStep | SweepStep
-
-
+@dataclass
+class MatrixSweepStep:
+    machine_id_generator: str
+    machine_ids_hexylon: list[str]
+    freq_start_hz: float
+    freq_stop_hz: float
+    freq_step_hz: float
+    power_start_dbm: float
+    power_stop_dbm: float
+    power_step_dbm: float
+    commands: list[str]
+    dwell_seconds: float = 5.0
+    output_file: str = ""
+    
+SequenceStep = CommandStep | TaskStep | SweepStep | MatrixSweepStep
 # ---------------------------------------------------------------------------
 # Orquestador
 # ---------------------------------------------------------------------------
@@ -293,6 +306,106 @@ def run_sequence(steps: list[SequenceStep]) -> SequenceResult:
                     step_results=step_results,
                 )
 
+        elif isinstance(step, MatrixSweepStep):
+            from pathlib import Path as P
+
+            freqs = []
+            freq = step.freq_start_hz
+            while freq <= step.freq_stop_hz + 1:
+                freqs.append(freq)
+                freq += step.freq_step_hz
+
+            powers = []
+            power = step.power_start_dbm
+            if step.power_step_dbm > 0:
+                while power <= step.power_stop_dbm + 1e-9:
+                    powers.append(power)
+                    power += step.power_step_dbm
+            else:
+                while power >= step.power_stop_dbm - 1e-9:
+                    powers.append(power)
+                    power += step.power_step_dbm
+
+            output_path = P(step.output_file) if step.output_file else (
+                P(__file__).parents[3] / "output" /
+                f"matrix_sweep_{int(step.freq_start_hz/1e6)}-{int(step.freq_stop_hz/1e6)}MHz"
+                f"_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+            )
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+
+            task_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+            matrix_plan = MatrixSweepPlan(
+                task_id=task_id,
+                machine_id_generator=step.machine_id_generator,
+                machine_ids_hexylon=step.machine_ids_hexylon,
+                freq_start_hz=step.freq_start_hz,
+                freq_stop_hz=step.freq_stop_hz,
+                freq_step_hz=step.freq_step_hz,
+                power_start_dbm=step.power_start_dbm,
+                power_stop_dbm=step.power_stop_dbm,
+                power_step_dbm=step.power_step_dbm,
+                commands=step.commands,
+                dwell_seconds=step.dwell_seconds,
+                output_file=str(output_path),
+                description=(
+                    f"Barrido matricial frecuencia/potencia: "
+                    f"{step.freq_start_hz/1e6:.0f}-{step.freq_stop_hz/1e6:.0f} MHz "
+                    f"paso {step.freq_step_hz/1e6:.0f} MHz; "
+                    f"{step.power_start_dbm:g} a {step.power_stop_dbm:g} dBm "
+                    f"paso {step.power_step_dbm:g} dB; "
+                    f"equipos {', '.join(step.machine_ids_hexylon)}"
+                ),
+            )
+
+            try:
+                launch_matrix_sweep(matrix_plan)
+
+                _log(
+                    i,
+                    step.machine_id_generator,
+                    "matrix_sweep",
+                    f"freq_points={len(freqs)} power_points={len(powers)} "
+                    f"total={len(freqs) * len(powers)} task_id={task_id}",
+                    "LAUNCHED",
+                )
+
+                step_results.append({
+                    "step": i,
+                    "type": "matrix_sweep",
+                    "task_id": task_id,
+                    "machine_id_generator": step.machine_id_generator,
+                    "machine_ids_hexylon": step.machine_ids_hexylon,
+                    "freq_start_mhz": step.freq_start_hz / 1e6,
+                    "freq_stop_mhz": step.freq_stop_hz / 1e6,
+                    "freq_step_mhz": step.freq_step_hz / 1e6,
+                    "power_start_dbm": step.power_start_dbm,
+                    "power_stop_dbm": step.power_stop_dbm,
+                    "power_step_dbm": step.power_step_dbm,
+                    "freq_points": len(freqs),
+                    "power_points": len(powers),
+                    "points": len(freqs) * len(powers),
+                    "output_file": str(output_path),
+                    "status": "launched",
+                })
+
+            except Exception as exc:
+                _log(
+                    i,
+                    step.machine_id_generator,
+                    "matrix_sweep",
+                    str(output_path),
+                    f"FAILED error={exc}",
+                )
+
+                return SequenceResult(
+                    success=False,
+                    steps_completed=i - 1,
+                    steps_total=len(steps),
+                    error=f"Paso {i} falló al lanzar el barrido matricial: {exc}",
+                    step_results=step_results,
+                )
+                
     return SequenceResult(
         success=True,
         steps_completed=len(steps),

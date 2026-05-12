@@ -421,13 +421,14 @@ def launch_task(
     return executor
 
 def get_active_tasks() -> dict[str, TaskExecutor]:
-    """Devuelve una copia del registro de tareas activas."""
     from llm.tasks.sweep_executor import get_active_sweeps
+    from llm.tasks.matrix_sweep_executor import get_active_matrix_sweeps
 
     with _lock:
         active = dict(_active_tasks)
 
     active.update(get_active_sweeps())
+    active.update(get_active_matrix_sweeps())
     return active
 
 def cancel_task(task_id: str) -> bool:
@@ -439,5 +440,6 @@ def cancel_task(task_id: str) -> bool:
         return True
 
     from llm.tasks.sweep_executor import cancel_sweep
+    from llm.tasks.matrix_sweep_executor import cancel_matrix_sweep
 
-    return cancel_sweep(task_id)
+    return cancel_sweep(task_id) or cancel_matrix_sweep(task_id)

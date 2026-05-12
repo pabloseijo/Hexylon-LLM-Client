@@ -4,7 +4,7 @@
     "type": "hexylon"
   },
   "hexylon_b": {
-    "url": "http://10.113.0.149:8814/mcp",
+    "url": "http://10.113.2.227:8814/mcp",
     "type": "hexylon"
   },
   "generator": {

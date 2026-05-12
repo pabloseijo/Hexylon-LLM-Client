@@ -158,6 +158,23 @@ class SweepExecutor:
                         "frequency_hz": freq_hz,
                         "frequency_mhz": freq_mhz,
                     }
+                    
+                    send_scpi_command(
+                        freq_cmd,
+                        machine_id=self.sweep_plan.machine_id_hexylon,
+                    )
+
+                    time.sleep(0.5)
+
+                    try:
+                        send_scpi_command(
+                            "LOCK?",
+                            machine_id=self.sweep_plan.machine_id_hexylon,
+                        )
+                    except Exception:
+                        pass
+
+                    time.sleep(0.5)
 
                     for command in self.sweep_plan.commands:
                         try:

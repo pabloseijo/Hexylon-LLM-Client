@@ -43,27 +43,28 @@ export interface Message {
 }
 
 export interface ChartPoint {
-  x: string;
+  x: string | number;
   y: number;
+}
+
+export interface ChartSeries {
+  label: string;
+  points: ChartPoint[];
 }
 
 export interface SingleChartData {
   metric: string;
   metric_column?: string;
+  machine_id?: string;
   unit?: string | null;
   x_label: string;
   y_label: string;
-  points: ChartPoint[];
+  points?: ChartPoint[];
+  series?: ChartSeries[];
   source_file?: string;
 }
 
 export interface ChartData {
   charts: SingleChartData[];
   source_file?: string;
-}
-
-export interface WsNotification {
-  type: string;
-  task_id: string;
-  data?: Record<string, unknown>;
 }

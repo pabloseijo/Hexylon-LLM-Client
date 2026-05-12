@@ -14,8 +14,7 @@ from llm.parsing.plot_request_parser import (
 )
 from llm.tasks.task_analyzer import analyze_csv
 from llm.tasks.task_chart_data import build_task_chart_data
-from llm.tasks.task_plotter import generate_task_plot
-
+from llm.tasks.task_plotter import generate_task_plot, generate_task_plots
 
 ANALYSIS_INTERPRETER_PROMPT = """
 Eres un asistente técnico especializado en análisis de señales RF del equipo Hexylon.
@@ -96,6 +95,7 @@ def handle_analysis(user_input: str) -> dict[str, Any] | str:
     plot_requested = detect_plot_intent(user_input)
 
     plot_file: str | None = None
+    plot_files: list[str] = []
     chart_data: dict[str, Any] | None = None
 
     try:
@@ -116,10 +116,11 @@ def handle_analysis(user_input: str) -> dict[str, Any] | str:
             chart_data = None
 
         try:
-            plot_file = generate_task_plot(
+            plot_files = generate_task_plots(
                 csv_path,
                 requested_metric=metric_filter,
             )
+            plot_file = plot_files[0] if plot_files else None
         except Exception as exc:
             print("ERROR_PLOT_FILE:", repr(exc))
             plot_file = None
@@ -151,4 +152,5 @@ def handle_analysis(user_input: str) -> dict[str, Any] | str:
         "message": message,
         "plot_file": plot_file,
         "chart_data": chart_data,
+        "plot_files": plot_files,
     }

@@ -24,7 +24,13 @@ from llm.tasks.orchestrator import (
 )
 from llm.tasks.task_planner import plan_task, TaskPlannerError
 from llm.memory.conversation_history import conversation_history
-
+from llm.tasks.orchestrator import (
+    CommandStep,
+    TaskStep,
+    MatrixSweepStep,
+    SequenceStep,
+    run_sequence,
+)
 
 SEQUENCE_PLANNER_PROMPT = """
 Eres un planificador de secuencias para el sistema Hexylon + Generador de señales R&S SGU100A.
@@ -41,6 +47,7 @@ Tipos de paso:
 - "command": envía un único comando SCPI y espera respuesta
 - "task": lanza una medición periódica con intervalo y duración
 - "sweep": barrido de frecuencias — configura el generador en cada paso y mide en el Hexylon
+- "matrix_sweep": barrido combinado frecuencia/potencia — cambia potencia y frecuencia del generador y mide en uno o varios Hexylon
 
 ## Comandos del generador R&S SGU100A
 
@@ -98,6 +105,22 @@ Para pasos de tipo "sweep":
   "commands": ["POW?"]
 }
 
+Para pasos de tipo "matrix_sweep":
+{
+  "step": 2,
+  "machine_id_generator": "generator",
+  "machine_ids_hexylon": ["hexylon_a", "hexylon_b"],
+  "action": "matrix_sweep",
+  "freq_start_mhz": 500,
+  "freq_stop_mhz": 800,
+  "freq_step_mhz": 50,
+  "power_start_dbm": -10,
+  "power_stop_dbm": -50,
+  "power_step_dbm": -10,
+  "dwell_seconds": 5,
+  "commands": ["FREQ?", "POW?"]
+}
+
 Reglas obligatorias:
 - Devuelve SOLO el array JSON. Sin texto antes ni después. Sin bloques de código.
 - El orden de los pasos es el orden de ejecución.
@@ -106,6 +129,8 @@ Reglas obligatorias:
 - Los comandos de escritura del generador NO llevan '?'.
 - Si el usuario menciona activar la salida del generador, añade OUTPut:STATe ON antes del sweep.
 - Si no puedes generar un plan válido, devuelve: [{"error": "motivo"}]
+- Si el usuario pide barrer frecuencia y potencia a la vez, usa un único paso "matrix_sweep". No generes dos pasos "sweep" separados.
+- Si menciona varios Hexylon, usa "machine_ids_hexylon" con todos ellos.
 
 Ejemplos de conversión:
 
@@ -120,6 +145,12 @@ Ejemplos de conversión:
     {"step": 1, "machine_id": "generator", "machine_type": "generator", "action": "command", "command": "POW -10dBm"},
     {"step": 2, "machine_id": "generator", "machine_type": "generator", "action": "command", "command": "OUTPut:STATe ON"},
     {"step": 3, "machine_id": "hexylon_a", "machine_type": "hexylon", "action": "task", "commands": ["POW?"], "interval_seconds": 5, "duration_seconds": 120, "description": "Medición de potencia cada 5 segundos durante 2 minutos"}
+  ]
+  
+"barre el generador de 500 MHz a 800 MHz en pasos de 50 MHz y la potencia de -10 dBm a -50 dBm en pasos de -10 dBm y mide la frecuencia y la potencia en hexylon_a y hexylon_b"
+→ [
+    {"step": 1, "machine_id": "generator", "machine_type": "generator", "action": "command", "command": "OUTPut:STATe ON"},
+    {"step": 2, "machine_id_generator": "generator", "machine_ids_hexylon": ["hexylon_a", "hexylon_b"], "action": "matrix_sweep", "freq_start_mhz": 500, "freq_stop_mhz": 800, "freq_step_mhz": 50, "power_start_dbm": -10, "power_stop_dbm": -50, "power_step_dbm": -10, "dwell_seconds": 5, "commands": ["FREQ?", "POW?"]}
   ]
 """.strip()
 
@@ -195,7 +226,33 @@ def _validate_sweep_ranges(
         return "La frecuencia de inicio debe ser menor que la de fin."
     return None
 
+def _validate_power_sweep_ranges(
+    power_start_dbm: float,
+    power_stop_dbm: float,
+    power_step_dbm: float,
+) -> str | None:
+    lo, hi = _POW_RANGE_DBM
 
+    for label, val in [
+        ("inicio", power_start_dbm),
+        ("fin", power_stop_dbm),
+    ]:
+        if not (lo <= val <= hi):
+            return (
+                f"Potencia de {label} **{val:g} dBm** fuera de rango "
+                f"({lo:.0f} dBm – +{hi:.0f} dBm)."
+            )
+
+    if power_step_dbm == 0:
+        return "El paso de potencia debe ser distinto de 0."
+
+    if power_start_dbm < power_stop_dbm and power_step_dbm < 0:
+        return "El paso de potencia debe ser positivo si la potencia final es mayor."
+
+    if power_start_dbm > power_stop_dbm and power_step_dbm > 0:
+        return "El paso de potencia debe ser negativo si la potencia final es menor."
+
+    return None
 # ---------------------------------------------------------------------------
 # Parseo del plan
 # ---------------------------------------------------------------------------
@@ -224,6 +281,7 @@ def _build_steps(plan: list[dict]) -> list[SequenceStep]:
     from llm.tasks.task_models import TaskPlan
     from llm.tasks.task_planner import _build_output_filename, _get_output_dir
     from llm.tasks.orchestrator import SweepStep
+    from llm.tasks.orchestrator import SweepStep, MatrixSweepStep
 
     steps: list[SequenceStep] = []
 
@@ -289,6 +347,48 @@ def _build_steps(plan: list[dict]) -> list[SequenceStep]:
                 freq_start_hz=freq_start,
                 freq_stop_hz=freq_stop,
                 freq_step_hz=freq_step,
+                commands=commands,
+                dwell_seconds=dwell,
+                output_file=output_file,
+            ))
+
+        elif action == "matrix_sweep":
+            freq_start = float(item["freq_start_mhz"]) * 1e6
+            freq_stop = float(item["freq_stop_mhz"]) * 1e6
+            freq_step = float(item["freq_step_mhz"]) * 1e6
+
+            power_start = float(item["power_start_dbm"])
+            power_stop = float(item["power_stop_dbm"])
+            power_step = float(item["power_step_dbm"])
+
+            dwell = float(item.get("dwell_seconds", 5.0))
+            commands = item.get("commands", ["FREQ?", "POW?"])
+            machine_ids = item.get("machine_ids_hexylon", ["hexylon_a"])
+
+            error = _validate_sweep_ranges(freq_start, freq_stop, freq_step)
+            if error:
+                raise ValueError(error)
+
+            error = _validate_power_sweep_ranges(power_start, power_stop, power_step)
+            if error:
+                raise ValueError(error)
+
+            output_file = str(
+                _get_output_dir() /
+                f"matrix_sweep_{int(freq_start/1e6)}-{int(freq_stop/1e6)}MHz"
+                f"_{int(power_start)}-{int(power_stop)}dBm"
+                f"_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+            )
+
+            steps.append(MatrixSweepStep(
+                machine_id_generator=item.get("machine_id_generator", "generator"),
+                machine_ids_hexylon=machine_ids,
+                freq_start_hz=freq_start,
+                freq_stop_hz=freq_stop,
+                freq_step_hz=freq_step,
+                power_start_dbm=power_start,
+                power_stop_dbm=power_stop,
+                power_step_dbm=power_step,
                 commands=commands,
                 dwell_seconds=dwell,
                 output_file=output_file,
@@ -378,6 +478,16 @@ def handle_orchestrated_sequence(user_input: str) -> dict[str, Any] | str:
                 f"`{sr['freq_start_mhz']:.0f} MHz` → `{sr['freq_stop_mhz']:.0f} MHz` "
                 f"en pasos de `{sr['freq_step_mhz']:.0f} MHz` — "
                 f"**{sr['points']} puntos** — "
+                f"resultados en `{sr['output_file']}`"
+            )
+        elif sr["type"] == "matrix_sweep":
+            result_lines.append(
+                f"- **Paso {sr['step']}** barrido matricial frecuencia/potencia: "
+                f"`{sr['freq_start_mhz']:.0f} MHz` → `{sr['freq_stop_mhz']:.0f} MHz` "
+                f"paso `{sr['freq_step_mhz']:.0f} MHz`; "
+                f"`{sr['power_start_dbm']:g} dBm` → `{sr['power_stop_dbm']:g} dBm` "
+                f"paso `{sr['power_step_dbm']:g} dB` — "
+                f"**{sr['points']} puntos** por equipo — "
                 f"resultados en `{sr['output_file']}`"
             )
 
