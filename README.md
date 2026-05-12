@@ -295,6 +295,26 @@ El paso 2 arranca **8 ms** después de que el paso 1 confirma OK.
 
 ---
 
+## Sistema de memoria
+
+El sistema mantiene contexto conversacional en 4 capas independientes:
+
+| Capa | Módulo | Persistencia | Uso |
+|------|--------|-------------|-----|
+| Conversacional | `conversation_history` | RAM (sesión) | Historial de mensajes para el LLM — máx. 20 turnos |
+| Eventos | `session_log` | RAM (sesión) | Log estructurado de acciones — tareas, comandos, alertas |
+| Estado inmediato | `session_memory` | RAM (sesión) | Última tarea activa, último CSV, última métrica |
+| Persistente | `task_history` | Disco (`~/.hexylon/`) | Historial de tareas entre sesiones |
+
+Esto permite follow-ups como:
+
+- `"y eso qué significa"` — usa `conversation_history`
+- `"qué hemos hecho hasta ahora"` — usa `session_log`
+- `"grafícame la última tarea"` — usa `session_memory.last_output_file`
+- `"qué tareas hemos ejecutado esta semana"` — usa `task_history`
+
+---
+
 ## Principios de diseño
 
 - **Separación estricta** — MCP sin lógica, LLM solo donde aporta valor, ejecución determinista
