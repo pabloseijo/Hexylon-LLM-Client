@@ -155,34 +155,35 @@ def _parse_numeric(raw: str) -> tuple[float | None, str | None]:
     return None, None
 
 
-def _detect_trend(values: list[float], window: int = 5) -> str:
+def _detect_trend(values: list[float]) -> str:
     """
-    Detecta la tendencia de una serie de valores.
-
-    Compara la media de los últimos `window` valores con la media del resto.
+    Detecta la tendencia usando regresión lineal simple.
+    Más robusto que comparar medias para señales con ruido.
     """
     if len(values) < 4:
         return "estable"
 
-    mid = max(1, len(values) - window)
-    early = values[:mid]
-    late = values[mid:]
+    n = len(values)
+    x_mean = (n - 1) / 2
+    y_mean = sum(values) / n
 
-    mean_early = sum(early) / len(early)
-    mean_late = sum(late) / len(late)
+    numerator = sum((i - x_mean) * (v - y_mean) for i, v in enumerate(values))
+    denominator = sum((i - x_mean) ** 2 for i in range(n))
 
-    # Umbral de cambio relativo del 2%
-    if mean_early == 0:
+    if denominator == 0:
         return "estable"
 
-    change = (mean_late - mean_early) / abs(mean_early)
+    slope = numerator / denominator
+    value_range = max(values) - min(values)
 
-    if change > 0.02:
-        return "subiendo"
-    if change < -0.02:
-        return "bajando"
-    return "estable"
+    if value_range == 0:
+        return "estable"
 
+    normalized_slope = abs(slope) / value_range
+    if normalized_slope < 0.01:
+        return "estable"
+
+    return "subiendo" if slope > 0 else "bajando"
 
 # ---------------------------------------------------------------------------
 # Análisis principal
@@ -238,9 +239,11 @@ def analyze_csv(csv_path: str, task_id: str = "") -> TaskAnalysis:
 
     # Calcular estadísticas por comando
     stats: dict[str, CommandStats] = {}
+    from collections import Counter
+
     for cmd in command_columns:
         stat = CommandStats(command=cmd)
-        detected_unit: str | None = None
+        unit_counter: Counter = Counter()
 
         for row in rows:
             raw = row.get(cmd, "").strip()
@@ -256,10 +259,10 @@ def analyze_csv(csv_path: str, task_id: str = "") -> TaskAnalysis:
             value, unit = _parse_numeric(raw)
             if value is not None:
                 stat.values.append(value)
-                if unit and detected_unit is None:
-                    detected_unit = unit
+                if unit:
+                    unit_counter[unit] += 1
 
-        stat.unit = detected_unit
+        stat.unit = unit_counter.most_common(1)[0][0] if unit_counter else None
 
         if stat.values:
             stat.min_val = min(stat.values)

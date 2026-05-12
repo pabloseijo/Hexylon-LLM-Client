@@ -116,14 +116,11 @@ def run_sequence(steps: list[SequenceStep]) -> SequenceResult:
                         machine_id=step.machine_id,
                     )
 
-                _log(
-                    i,
-                    step.machine_id,
-                    "command",
-                    step.command,
-                    f"OK response={response!r}",
-                )
+                # Actualizar session_memory con la máquina usada
+                from llm.memory.session_memory import session_memory
+                session_memory.set_last_machine_id(step.machine_id)
 
+                _log(i, step.machine_id, "command", step.command, f"OK response={response!r}")
                 step_results.append({
                     "step": i,
                     "type": "command",
@@ -132,21 +129,14 @@ def run_sequence(steps: list[SequenceStep]) -> SequenceResult:
                     "response": response,
                     "status": "ok",
                 })
-
-            except (MCPClientError, GeneratorClientError, Exception) as exc:
-                _log(
-                    i,
-                    step.machine_id,
-                    "command",
-                    step.command,
-                    f"FAILED error={exc}",
-                )
+            except (MCPClientError, GeneratorClientError) as exc:
+                _log(i, step.machine_id, "command", step.command, f"FAILED error={exc}")
 
                 return SequenceResult(
                     success=False,
                     steps_completed=i - 1,
                     steps_total=len(steps),
-                    error=f"Paso {i} falló ({step.machine_id} / {step.command}): {exc}",
+                    error=f"Paso {i} falló al ejecutar comando: {exc}",
                     step_results=step_results,
                 )
 

@@ -115,13 +115,15 @@ class ConversationHistory:
         """
         max_messages = self._max_turns * 2
         if len(self._messages) > max_messages:
-            # Eliminar desde el principio en pares
             excess = len(self._messages) - max_messages
-            # Asegurar que eliminamos un número par para mantener consistencia
             if excess % 2 != 0:
                 excess += 1
             self._messages = self._messages[excess:]
 
+        # Asegurar que el primer mensaje tras el trim es siempre del usuario
+        while self._messages and self._messages[0]["role"] != "user":
+            self._messages.pop(0)
+            
     def clear(self) -> None:
         """Limpia el historial completo."""
         with self._lock:

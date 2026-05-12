@@ -1,14 +1,11 @@
 """
 Estado de sesión para el cliente LLM de Hexylon.
-
 Mantiene memoria operativa del chat actual en memoria de proceso.
 No persiste entre reinicios. Su objetivo es resolver referencias
 conversacionales al contexto reciente.
 """
-
 from __future__ import annotations
-
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from threading import Lock
 
 
@@ -27,12 +24,14 @@ class SessionState:
         Ruta del último CSV generado por una tarea finalizada.
     last_metric:
         Última métrica relevante mencionada o usada en contexto.
+    last_machine_id:
+        Última máquina usada — permite resolver "vuelve a medir" sin especificar equipo.
     """
-
     last_task_id: str | None = None
     last_completed_task_id: str | None = None
     last_output_file: str | None = None
     last_metric: str | None = None
+    last_machine_id: str | None = None  # ← NUEVO
 
     def clear(self) -> None:
         """Reinicia el estado de sesión."""
@@ -40,12 +39,12 @@ class SessionState:
         self.last_completed_task_id = None
         self.last_output_file = None
         self.last_metric = None
+        self.last_machine_id = None  # ← NUEVO
 
 
 class SessionMemory:
     """
     Envoltorio thread-safe sobre SessionState.
-
     Permite actualizar el estado desde el hilo principal y desde callbacks
     de tareas asíncronas de forma segura.
     """
@@ -62,6 +61,7 @@ class SessionMemory:
                 last_completed_task_id=self._state.last_completed_task_id,
                 last_output_file=self._state.last_output_file,
                 last_metric=self._state.last_metric,
+                last_machine_id=self._state.last_machine_id,  # ← NUEVO
             )
 
     def set_last_task_id(self, task_id: str | None) -> None:
@@ -80,6 +80,10 @@ class SessionMemory:
     def set_last_metric(self, metric: str | None) -> None:
         with self._lock:
             self._state.last_metric = metric
+
+    def set_last_machine_id(self, machine_id: str | None) -> None:  # ← NUEVO
+        with self._lock:
+            self._state.last_machine_id = machine_id
 
     def clear_last_task_if_matches(self, task_id: str) -> None:
         with self._lock:
