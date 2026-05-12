@@ -11,6 +11,7 @@ delega la ejecución al orquestador.
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 from datetime import datetime
 
@@ -122,6 +123,83 @@ Ejemplos de conversión:
   ]
 """.strip()
 
+
+# ---------------------------------------------------------------------------
+# Validación de rangos del generador
+# ---------------------------------------------------------------------------
+
+_FREQ_RANGE_HZ = (10e6, 40e9)    # 10 MHz – 40 GHz
+_POW_RANGE_DBM = (-120.0, 25.0)  # -120 dBm – +25 dBm
+
+
+def _validate_generator_command(command: str) -> str | None:
+    """
+    Valida que el comando del generador esté dentro de los rangos del SGU100A.
+    Devuelve un mensaje de error si está fuera de rango, None si es válido.
+    """
+    cmd = command.strip().upper()
+
+    # Validar potencia: POW -10dBm / POW -10 DBM
+    pow_match = re.search(r"\bPOW\s+([+-]?\d+(?:\.\d+)?)", cmd)
+    if pow_match:
+        val = float(pow_match.group(1))
+        lo, hi = _POW_RANGE_DBM
+        if not (lo <= val <= hi):
+            return (
+                f"Potencia **{val} dBm** fuera de rango del SGU100A "
+                f"({lo:.0f} dBm – +{hi:.0f} dBm)."
+            )
+
+    # Validar frecuencia: FREQ 500 MHZ / FREQ 2 GHZ
+    freq_match = re.search(
+        r"\bFREQ\s+(\d+(?:\.\d+)?)\s*(GHZ|MHZ|KHZ|HZ)?", cmd
+    )
+    if freq_match:
+        val = float(freq_match.group(1))
+        unit = (freq_match.group(2) or "HZ").upper()
+        multipliers = {"GHZ": 1e9, "MHZ": 1e6, "KHZ": 1e3, "HZ": 1.0}
+        hz = val * multipliers[unit]
+        lo, hi = _FREQ_RANGE_HZ
+        if not (lo <= hz <= hi):
+            return (
+                f"Frecuencia **{val} {unit}** fuera de rango del SGU100A "
+                f"(10 MHz – 40 GHz)."
+            )
+
+    return None
+
+
+def _validate_sweep_ranges(
+    freq_start_hz: float,
+    freq_stop_hz: float,
+    freq_step_hz: float,
+) -> str | None:
+    """
+    Valida los parámetros de un barrido de frecuencias.
+    Devuelve mensaje de error o None si es válido.
+    """
+    lo, hi = _FREQ_RANGE_HZ
+    for label, val in [
+        ("inicio", freq_start_hz),
+        ("fin", freq_stop_hz),
+        ("paso", freq_step_hz),
+    ]:
+        if not (lo <= val <= hi):
+            return (
+                f"Frecuencia de {label} **{val/1e6:.1f} MHz** "
+                f"fuera de rango (10 MHz – 40 GHz)."
+            )
+    if freq_step_hz <= 0:
+        return "El paso de frecuencia debe ser mayor que 0."
+    if freq_start_hz >= freq_stop_hz:
+        return "La frecuencia de inicio debe ser menor que la de fin."
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Parseo del plan
+# ---------------------------------------------------------------------------
+
 def _parse_sequence_plan(raw: str) -> list[dict]:
     raw = raw.strip()
     if raw.startswith("```"):
@@ -153,10 +231,19 @@ def _build_steps(plan: list[dict]) -> list[SequenceStep]:
         action = item["action"]
 
         if action == "command":
+            command = item["command"]
+            machine_type = item.get("machine_type", "hexylon")
+
+            # Validar rangos si es un comando del generador
+            if machine_type == "generator":
+                error = _validate_generator_command(command)
+                if error:
+                    raise ValueError(error)
+
             steps.append(CommandStep(
                 machine_id=item["machine_id"],
-                command=item["command"],
-                machine_type=item.get("machine_type", "hexylon"),
+                command=command,
+                machine_type=machine_type,
             ))
 
         elif action == "task":
@@ -185,6 +272,11 @@ def _build_steps(plan: list[dict]) -> list[SequenceStep]:
             dwell      = float(item.get("dwell_seconds", 5.0))
             commands   = item.get("commands", ["POW?"])
 
+            # Validar rangos del sweep
+            error = _validate_sweep_ranges(freq_start, freq_stop, freq_step)
+            if error:
+                raise ValueError(error)
+
             output_file = str(
                 _get_output_dir() /
                 f"sweep_{int(freq_start/1e6)}-{int(freq_stop/1e6)}MHz"
@@ -205,6 +297,10 @@ def _build_steps(plan: list[dict]) -> list[SequenceStep]:
     return steps
 
 
+# ---------------------------------------------------------------------------
+# Handler principal
+# ---------------------------------------------------------------------------
+
 def handle_orchestrated_sequence(user_input: str) -> dict[str, Any] | str:
     # 1. Descomponer en pasos con el LLM
     messages = [
@@ -223,12 +319,22 @@ def handle_orchestrated_sequence(user_input: str) -> dict[str, Any] | str:
             "el comando y la medición."
         )
 
-    steps = _build_steps(plan)
+    # 2. Construir pasos con validación de rangos
+    try:
+        steps = _build_steps(plan)
+    except ValueError as exc:
+        return (
+            "## Parámetros fuera de rango\n\n"
+            f"- {exc}\n\n"
+            "## Rangos válidos del SGU100A\n\n"
+            "- **Frecuencia**: 10 MHz – 40 GHz\n"
+            "- **Potencia**: −120 dBm – +25 dBm"
+        )
 
     if not steps:
         return "## Error\n\n- No se han podido construir los pasos de la secuencia."
 
-    # 2. Confirmar al usuario los pasos antes de ejecutar
+    # 3. Confirmar pasos al usuario
     step_lines = []
     for i, step in enumerate(steps, start=1):
         if isinstance(step, CommandStep):
@@ -240,7 +346,7 @@ def handle_orchestrated_sequence(user_input: str) -> dict[str, Any] | str:
                 f"- **Paso {i}**: tarea `{step.plan.description}` → `{step.machine_id}`"
             )
 
-    # 3. Ejecutar la secuencia
+    # 4. Ejecutar la secuencia
     result = run_sequence(steps)
 
     if not result.success:
@@ -252,7 +358,7 @@ def handle_orchestrated_sequence(user_input: str) -> dict[str, Any] | str:
             + "\n".join(step_lines)
         )
 
-    # 4. Respuesta de éxito
+    # 5. Respuesta de éxito
     result_lines = []
     for sr in result.step_results:
         if sr["type"] == "command":
@@ -271,10 +377,10 @@ def handle_orchestrated_sequence(user_input: str) -> dict[str, Any] | str:
                 f"- **Paso {sr['step']}** barrido de frecuencias: "
                 f"`{sr['freq_start_mhz']:.0f} MHz` → `{sr['freq_stop_mhz']:.0f} MHz` "
                 f"en pasos de `{sr['freq_step_mhz']:.0f} MHz` — "
-                f"**{sr['points']} puntos** medidos — "
+                f"**{sr['points']} puntos** — "
                 f"resultados en `{sr['output_file']}`"
             )
-            
+
     return {
         "message": (
             "## Secuencia completada\n\n"
