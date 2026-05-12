@@ -181,6 +181,17 @@ class SweepExecutor:
                             values=values,
                         )
                     )
+                    
+                    notify_event({
+                        "type": "sweep_progress",
+                        "task_id": self.sweep_plan.task_id,
+                        "data": {
+                            "current_freq_mhz": freq_mhz,
+                            "current_step": len(measurements),
+                            "total_steps": len(freqs),
+                            "percent": round(len(measurements) / len(freqs) * 100),
+                        },
+                    })
 
             self._result = TaskResult(
                 plan=self.plan,
@@ -281,7 +292,6 @@ def launch_sweep(
     })
 
     return executor
-
 
 def get_active_sweeps() -> dict[str, SweepExecutor]:
     with _lock:

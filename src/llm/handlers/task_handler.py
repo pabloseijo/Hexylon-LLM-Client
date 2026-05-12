@@ -12,6 +12,7 @@ from llm.tasks.task_executor import (
     get_active_tasks,
     launch_task,
 )
+from llm.tasks.sweep_executor import cancel_sweep, get_active_sweeps
 from llm.tasks.task_models import TaskResult, TaskStatus
 from llm.tasks.task_planner import try_plan_task
 
@@ -22,6 +23,7 @@ from llm.tasks.task_planner import try_plan_task
 
 def _get_sorted_active_tasks() -> list[tuple[str, object]]:
     active = get_active_tasks()
+    active.update(get_active_sweeps())  # incluir sweeps activos
     return sorted(active.items(), key=lambda item: item[0])
 
 
@@ -56,7 +58,6 @@ def _resolve_task_id_for_cancel(user_input: str) -> tuple[str | None, str | None
         return None, "No hay ninguna tarea activa en este momento."
 
     active_task_ids = [task_id for task_id, _ in sorted_active]
-    text = user_input.lower().strip()
 
     explicit_task_id = _extract_explicit_task_id(user_input, active_task_ids)
     if explicit_task_id:
@@ -120,7 +121,7 @@ def handle_launch_task(user_input: str, machine_id: str | None = None) -> dict[s
         return plan_or_error
 
     plan = plan_or_error
-    plan.machine_id = machine_id  # ← NUEVO
+    plan.machine_id = machine_id
 
     launch_task(plan, on_complete=_on_task_complete)
     session_memory.set_last_task_id(plan.task_id)
@@ -153,13 +154,15 @@ def handle_launch_task(user_input: str, machine_id: str | None = None) -> dict[s
         },
     }
 
+
 def handle_cancel_task(user_input: str) -> str:
     target_id, error = _resolve_task_id_for_cancel(user_input)
 
     if error:
         return error
 
-    cancelled = cancel_task(target_id)
+    # Intentar cancelar tarea normal primero, luego sweep
+    cancelled = cancel_task(target_id) or cancel_sweep(target_id)
 
     if not cancelled:
         return f"No se ha podido cancelar la tarea {target_id}."

@@ -266,6 +266,29 @@ class TaskExecutor:
                 )
                 measurements.append(measurement)
                 writer.write_row(measurement)
+                
+                # Emitir progreso por WebSocket
+                total_iterations = max(
+                    1,
+                    int(self.plan.duration_seconds / self.plan.interval_seconds),
+                )
+
+                notify_event({
+                    "type": "task_progress",
+                    "task_id": self.plan.task_id,
+                    "data": {
+                        "current_step": iteration,
+                        "total_steps": total_iterations,
+                        "percent": min(
+                            100,
+                            round(iteration / total_iterations * 100),
+                        ),
+                        "elapsed_seconds": round(
+                            (datetime.now() - started_at).total_seconds(),
+                            1,
+                        ),
+                    },
+                })
 
                 self._evaluate_alert_conditions(
                     measurement_values=values,
@@ -397,70 +420,6 @@ def launch_task(
 
     return executor
 
-class SweepExecutor:
-    """
-    Adaptador mínimo para mostrar un barrido como tarea activa en la UI.
-    Compatible con task_executor_to_api().
-    """
-
-    def __init__(self, plan: TaskPlan) -> None:
-        self.plan = plan
-        self._thread = threading.current_thread()
-        self._result: TaskResult | None = None
-
-    @property
-    def is_running(self) -> bool:
-        return True
-
-    @property
-    def result(self) -> TaskResult | None:
-        return self._result
-
-    def cancel(self) -> None:
-        # Cancelación no soportada todavía para SweepStep síncrono.
-        pass
-    
-def register_active_sweep(plan: TaskPlan) -> SweepExecutor:
-    executor = SweepExecutor(plan)
-
-    with _lock:
-        _active_tasks[plan.task_id] = executor  # type: ignore[assignment]
-
-    notify_event({
-        "type": "task_created",
-        "task_id": plan.task_id,
-        "data": task_executor_to_api(plan.task_id, executor),  # type: ignore[arg-type]
-    })
-
-    return executor
-
-
-def finish_active_sweep(result: TaskResult) -> None:
-    with _lock:
-        executor = _active_tasks.pop(result.plan.task_id, None)
-
-    if executor is not None:
-        try:
-            executor._result = result  # type: ignore[attr-defined]
-        except Exception:
-            pass
-
-    api_task = task_result_to_api(result)
-
-    if result.status == TaskStatus.COMPLETED:
-        event_type = "task_completed"
-    elif result.status == TaskStatus.CANCELLED:
-        event_type = "task_cancelled"
-    else:
-        event_type = "task_failed"
-
-    notify_event({
-        "type": event_type,
-        "task_id": result.plan.task_id,
-        "data": api_task,
-    })
-
-
 def get_active_tasks() -> dict[str, TaskExecutor]:
     """Devuelve una copia del registro de tareas activas."""
     from llm.tasks.sweep_executor import get_active_sweeps
@@ -472,14 +431,6 @@ def get_active_tasks() -> dict[str, TaskExecutor]:
     return active
 
 def cancel_task(task_id: str) -> bool:
-    """
-    Cancela una tarea activa por su ID.
-
-    Returns
-    -------
-    bool
-        True si la tarea existía y fue cancelada, False si no se encontró.
-    """
     with _lock:
         executor = _active_tasks.get(task_id)
 

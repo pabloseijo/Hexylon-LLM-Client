@@ -61,3 +61,9 @@ export interface ChartData {
   charts: SingleChartData[];
   source_file?: string;
 }
+
+export interface WsNotification {
+  type: string;
+  task_id: string;
+  data?: Record<string, unknown>;
+}
