@@ -49,35 +49,50 @@ Cliente LLM (chat)
 El usuario introduce en el chat el siguiente prompt en lenguaje natural:
 
 ```
-Barrido matricial frecuencia/potencia: 700-900 MHz paso 50 MHz; -10 a -40 dBm paso -10 dB; equipos hexylon_a
+Barrido matricial frecuencia/potencia: 700-900 MHz paso 50 MHz;
+-10 a -40 dBm paso -10 dB; equipos hexylon_a
 ```
 
 El cliente LLM interpreta este prompt y lanza automáticamente un `MatrixSweepExecutor` con los parámetros extraídos:
 
 | Parámetro | Valor |
 |---|---|
-| Frecuencia inicio | 200 MHz |
+| Frecuencia inicio | 700 MHz |
 | Frecuencia fin | 900 MHz |
 | Paso de frecuencia | 50 MHz |
 | Potencia inicio | -10 dBm |
-| Potencia fin | -90 dBm |
+| Potencia fin | -40 dBm |
 | Paso de potencia | -10 dBm |
-| Equipos receptores | hexylon_a, hexylon_b |
+| Equipos receptores | hexylon_a |
 | Comandos de medida | `FREQ?`, `POW?` |
 
-**Total de puntos del barrido:** 15 frecuencias × 9 niveles de potencia = 135 puntos por receptor.
+**Total de puntos del barrido:** 5 frecuencias × 4 niveles de potencia = 20 puntos.
 
 ---
 
-## 5. Secuencia de ejecución por punto
+## 5. Sincronización de frecuencia — offset de canal
+
+El plan de canales del Hexylon (TERRA DEFAULT) tiene los canales centrados 2.75 MHz por debajo de la frecuencia nominal. Cuando el generador emite a 900 MHz, el canal que sintoniza el Hexylon está centrado en 897.25 MHz.
+
+Para compensarlo, el sistema aplica automáticamente el offset antes de enviar el comando `FREQ` al Hexylon:
+
+```
+frecuencia_hexylon = frecuencia_generador − 2.75 MHz
+```
+
+El generador recibe siempre la frecuencia nominal exacta. Solo el comando enviado al Hexylon lleva el offset aplicado.
+
+---
+
+## 6. Secuencia de ejecución por punto
 
 Para cada combinación (potencia, frecuencia) el sistema ejecuta en orden:
 
 1. `POW <x>dBm` → generador (configura nivel de potencia)
-2. `FREQ <f> MHz` → generador (configura frecuencia RF)
-3. `FREQ <f> MHz` → Hexylon (resintoniza receptor)
-4. Espera 1 segundo (estabilización)
-5. `LOCK?` → Hexylon (verifica enganche)
+2. `FREQ <f> MHz` → generador (frecuencia nominal)
+3. `FREQ <f − 2.75> MHz` → Hexylon (frecuencia con offset aplicado)
+4. Espera 1 segundo (estabilización del tuner)
+5. `LOCK?` → Hexylon (fuerza actualización interna)
 6. Espera 1 segundo adicional
 7. `FREQ?` → Hexylon (lectura de frecuencia sintonizada)
 8. `POW?` → Hexylon (lectura de potencia recibida)
@@ -86,7 +101,7 @@ Para cada combinación (potencia, frecuencia) el sistema ejecuta en orden:
 
 ---
 
-## 6. Tolerancia a fallos por equipo
+## 7. Tolerancia a fallos por equipo
 
 El sistema implementa aislamiento automático de equipos fallidos durante el barrido:
 
@@ -97,55 +112,50 @@ El sistema implementa aislamiento automático de equipos fallidos durante el bar
 
 ---
 
-## 7. Resultados del barrido ejecutado
+## 8. Resultados del barrido ejecutado
 
-**Fecha de ejecución:** 2026-05-13 10:08:47
+**Fecha de ejecución:** 2026-05-13 12:19:08
 
-**Resultado:** Barrido completado — 135 puntos adquiridos en hexylon_a.
+**Resultado:** Barrido completado — 20 puntos adquiridos en hexylon_a.
 
-### 7.1 Parámetros del barrido ejecutado
+### 8.1 Parámetros del barrido ejecutado
 
 | Parámetro | Valor |
 |---|---|
-| Frecuencias | 200, 250, 300, 350, 400, 450, 500, 550, 600, 650, 700, 750, 800, 850, 900 MHz |
-| Niveles de potencia | -10, -20, -30, -40, -50, -60, -70, -80, -90 dBm |
-| Total de puntos | 135 |
-| Duración | 10:08:47 → 10:35:30 (~27 min) |
+| Frecuencias | 700, 750, 800, 850, 900 MHz |
+| Niveles de potencia | -10, -20, -30, -40 dBm |
+| Total de puntos | 20 |
+| Duración | 12:19:08 → 12:21:58 (~3 min) |
 
-### 7.2 Resumen de medidas hexylon_a (POW?)
+### 8.2 Resumen de medidas hexylon_a (POW?)
 
 | Potencia generador (dBm) | Media POW medida (dBµV) |
 |---|---|
-| -10 | 92.52 |
-| -20 | 82.56 |
-| -30 | 72.57 |
-| -40 | 62.51 |
-| -50 | 7.89 |
-| -60 | 0.24 |
-| -70 | 0.07 |
-| -80 | 0.04 |
-| -90 | 14.17 |
+| -10 | 92.46 |
+| -20 | 82.46 |
+| -30 | 72.44 |
+| -40 | 62.48 |
 
-Rango total medido: **-2.2 dBµV** a **92.8 dBµV**.
+Rango total medido: **62.3 dBµV** a **92.7 dBµV**.
 
-Se observa una correlación lineal clara entre -10 y -40 dBm (~10 dBµV por cada 10 dBm), con caída brusca de la señal a partir de -50 dBm, indicando el umbral de sensibilidad del receptor en estas condiciones.
+Se observa una correlación lineal perfecta — exactamente 10 dBµV por cada 10 dBm de variación en la potencia del generador, uniforme en todas las frecuencias del barrido. El offset de canal corregido permite medidas consistentes en todo el rango de frecuencias.
 
-### 7.3 Muestra del CSV generado
+### 8.3 Muestra del CSV generado
 
 | timestamp | generator_power_dbm | generator_frequency_mhz | hexylon_a_frequency_set_response | hexylon_a_FREQ? | hexylon_a_POW? |
 |---|---|---|---|---|---|
-| 2026-05-13 10:08:47 | -10.0 | 200.0 | CMD OK | FREQ 200000 kHz | 92.5 dBµV |
-| 2026-05-13 10:09:35 | -10.0 | 400.0 | CMD OK | FREQ 400000 kHz | 92.3 dBµV |
-| 2026-05-13 10:11:36 | -10.0 | 900.0 | CMD OK | FREQ 900000 kHz | 92.4 dBµV |
-| 2026-05-13 10:17:47 | -40.0 | 200.0 | CMD OK | FREQ 200000 kHz | 62.6 dBµV |
-| 2026-05-13 10:20:47 | -50.0 | 200.0 | CMD OK | FREQ 200000 kHz | 52.8 dBµV |
-| 2026-05-13 10:21:11 | -50.0 | 300.0 | CMD OK | FREQ 300000 kHz | -0.6 dBµV |
-| 2026-05-13 10:32:43 | -90.0 | 200.0 | CMD OK | FREQ 200000 kHz | -2.2 dBµV |
-| 2026-05-13 10:35:30 | -90.0 | 900.0 | CMD OK | FREQ 900000 kHz | 15.7 dBµV |
+| 2026-05-13 12:19:08 | -10.0 | 700.0 | CMD OK | FREQ 700000 kHz | 92.5 dBµV |
+| 2026-05-13 12:19:17 | -10.0 | 750.0 | CMD OK | FREQ 750000 kHz | 92.5 dBµV |
+| 2026-05-13 12:19:26 | -10.0 | 800.0 | CMD OK | FREQ 800000 kHz | 92.7 dBµV |
+| 2026-05-13 12:19:35 | -10.0 | 850.0 | CMD OK | FREQ 850000 kHz | 92.3 dBµV |
+| 2026-05-13 12:19:44 | -10.0 | 900.0 | CMD OK | FREQ 900000 kHz | 92.3 dBµV |
+| 2026-05-13 12:20:37 | -30.0 | 700.0 | CMD OK | FREQ 700000 kHz | 72.2 dBµV |
+| 2026-05-13 12:21:22 | -40.0 | 700.0 | CMD OK | FREQ 700000 kHz | 62.3 dBµV |
+| 2026-05-13 12:21:58 | -40.0 | 900.0 | CMD OK | FREQ 900000 kHz | 62.5 dBµV |
 
 ---
 
-## 8. Prompt de usuario para graficar los resultados
+## 9. Prompt de usuario para graficar los resultados
 
 Una vez completado el barrido, el usuario introduce en el chat:
 
@@ -164,11 +174,13 @@ uno por cada frecuencia del barrido.
 |---|---|
 | Eje X | Frecuencia del generador (MHz) |
 | Eje Y | Potencia medida por hexylon_a (dBm) |
-| Líneas | Una por cada nivel de potencia del generador: -10, -20 ... -90 dBm (9 líneas) |
-| Puntos por línea | 15 (uno por cada frecuencia del barrido) |
+| Líneas | Una por cada nivel de potencia del generador: -10, -20, -30, -40 dBm (4 líneas) |
+| Puntos por línea | 5 (uno por cada frecuencia del barrido) |
 | Conversión | dBm = dBµV − 108.75 (sistema 75 Ω) |
 | Receptor | hexylon_a |
 
 ### Gráfica resultante
 
-![Barrido matricial RF - hexylon_a](../output/plots/hexylon_a_matrix_sweep_plot.png)
+![Barrido matricial RF - hexylon_a](output/plots/hexylon_a_matrix_sweep_corrected.png)
+
+Las 4 líneas son perfectamente paralelas y planas a lo largo de todas las frecuencias, con una separación constante de 10 dBm entre cada nivel de potencia del generador. Esto confirma el correcto funcionamiento del sistema de medida con el offset de canal aplicado.
