@@ -172,4 +172,4 @@ uno por cada frecuencia del barrido.
 
 ### Gráfica resultante
 
-![Barrido matricial RF - hexylon_a](output/plots/hexylon_a_matrix_sweep_plot.png)
+![Barrido matricial RF - hexylon_a](../output/plots/hexylon_a_matrix_sweep_plot.png)
