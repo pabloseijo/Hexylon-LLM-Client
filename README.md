@@ -1,342 +1,186 @@
-<div align="center">
+# Caso de uso: Barrido matricial frecuencia/potencia con cliente LLM
 
-<img src="/docs/gsertel-logo.png" alt="Gsertel" width="200"/>
+## 1. Descripción general
 
-# Hexylon LLM Client
-
-**Control de equipos RF mediante lenguaje natural**
-
-[![Python](https://img.shields.io/badge/Python-3.10.12-3776AB?style=flat&logo=python&logoColor=white)](https://www.python.org/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688?style=flat&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
-[![React](https://img.shields.io/badge/React-19-61DAFB?style=flat&logo=react&logoColor=black)](https://react.dev/)
-[![Ollama](https://img.shields.io/badge/LLM-qwen3.5%3A9b-FF6B35?style=flat&logo=ollama&logoColor=white)](https://ollama.com/)
-[![SCPI](https://img.shields.io/badge/Protocol-SCPI%20%2F%20MCP-4A90D9?style=flat)](https://en.wikipedia.org/wiki/Standard_Commands_for_Programmable_Instruments)
-[![Status](https://img.shields.io/badge/Status-Active-brightgreen?style=flat)](https://github.com/pabloseijo/Hexylon-LLM-Client)
-
-*Desarrollado en colaboración con [Gsertel](https://www.gsertel.com)*
-
-</div>
+Este caso de uso documenta la ejecución de un barrido matricial frecuencia/potencia sobre un equipo de medida Hexylon (GSERTEL) controlado mediante un cliente LLM. El sistema automatiza la configuración del generador RF R&S SGU100A y la adquisición de medidas en el receptor Hexylon, generando resultados en CSV y gráficas automáticas.
 
 ---
 
-## Descripción
-
-Hexylon LLM Client es un sistema de control inteligente para equipos de medición RF que permite operar el **medidor Hexylon (Gsertel)** y el **generador R&S SGU100A** mediante lenguaje natural, sin necesidad de conocer la sintaxis SCPI.
-
-El sistema combina un pipeline LLM local con un orquestador multi-equipo, tareas asíncronas, barridos de frecuencia automáticos y una interfaz web en tiempo real.
+## 2. Topología del sistema
 
 ```
-Usuario  →  LLM Pipeline  →  Orquestador  →  MCP  →  Hexylon (SCPI)
-                                          →  TCP Socket  →  R&S SGU100A (SCPI)
+Cliente LLM (chat)
+        ↓
+   Orchestrator
+        ↓
+┌───────────────────────┐
+│  Generador R&S SGU100A │
+│  TCP socket :5025      │
+└───────────────────────┘
+        ↓ RF
+┌───────────────────────┐
+│  hexylon_a             │
+│  Receptor RF           │
+└───────────────────────┘
 ```
 
----
-
-## Interfaz
-
-![Hexylon LLM Interface](docs/screenshot.png)
-
-*Barrido de frecuencias 500–600 MHz con análisis automático y gráfica interactiva*
+- **Protocolo de control Hexylon:** SCPI sobre TCP puerto 5025
+- **Protocolo de control generador:** SCPI sobre TCP puerto 5025
+- **Interfaz de usuario:** chat LLM en lenguaje natural
 
 ---
 
-## Capacidades
+## 3. Stack tecnológico
 
-| Capacidad | Ejemplo de prompt |
-|-----------|-------------------|
-| 📡 Comandos SCPI | `"dame la potencia actual"` |
-| ⚡ Control del generador | `"pon el generador a -10 dBm y 600 MHz"` |
-| 🔗 Secuencias multi-equipo | `"pon el generador a -10 dBm y mide la potencia en hexylon_a cada 5s durante 2 min"` |
-| 📈 Barrido de frecuencias | `"barre el generador de 500 MHz a 800 MHz en pasos de 50 MHz y mide la potencia"` |
-| ⏱️ Tareas periódicas | `"mide MER y POW cada 10s durante 2 minutos y avísame si MER baja de 20 dB"` |
-| 📊 Análisis y gráficas | `"grafícame la última tarea"` |
-| 📚 Consultas documentales | `"qué hace POW?"`, `"qué devuelve SOURce:FREQuency:CW"` |
-| 🌐 Multiidioma | Español · Gallego · Inglés |
-
----
-
-## Casos de uso documentados
-
-| Caso de uso | Descripción |
-|-------------|-------------|
-| [Barrido matricial frecuencia/potencia](docs/caso_uso_barrido_matricial.md) | Barrido 200–900 MHz × −10 a −90 dBm sobre hexylon_a con gráfica automática |
+| Componente | Tecnología |
+|---|---|
+| Backend | Python |
+| Control Hexylon | MCP (Model Context Protocol) |
+| Control generador | Socket TCP directo |
+| Frontend | React + TypeScript |
+| Gráficas | Recharts |
+| Progreso en tiempo real | WebSocket |
+| Persistencia | CSV |
 
 ---
 
-## Arquitectura
+## 4. Prompt de usuario para lanzar el barrido
+
+El usuario introduce en el chat el siguiente prompt en lenguaje natural:
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    Usuario / Frontend                    │
-└───────────────────────────┬─────────────────────────────┘
-                            │ POST /chat · WS /ws
-┌───────────────────────────▼─────────────────────────────┐
-│                  FastAPI Backend                         │
-└───────────────────────────┬─────────────────────────────┘
-                            │
-┌───────────────────────────▼─────────────────────────────┐
-│                    pipeline.py                           │
-│              parse_input() → intent                      │
-└──┬──────────┬──────────┬──────────┬──────────┬──────────┘
-   │          │          │          │          │
-   ▼          ▼          ▼          ▼          ▼
-command   knowledge  launch_task  orchestrated  analysis
-handler   handler    handler      _sequence     handler
-   │                    │              │
-   ▼                    ▼              ▼
-scpi_generator      task_executor  orchestrator.py
-   │                    │          ┌──┴──────────┐
-   ▼                    ▼          ▼             ▼
-MCP client          CSV Writer  CommandStep   SweepStep
-   │                             generator    generator
-   ▼                             client.py  + mcp_client
-Hexylon                          │             │
-(TCP 8814)                       ▼             ▼
-                              SGU100A       Hexylon
-                              (TCP 5025)  (TCP 8814)
+Barrido matricial frecuencia/potencia: 700-900 MHz paso 50 MHz;
+-10 a -40 dBm paso -10 dB; equipos hexylon_a
 ```
 
-### Equipos soportados
+El cliente LLM interpreta este prompt y lanza automáticamente un `MatrixSweepExecutor` con los parámetros extraídos:
 
-| Equipo | Fabricante | Protocolo | Puerto | Cliente |
-|--------|-----------|-----------|--------|---------|
-| Hexylon | Gsertel | MCP / HTTP | 8814 | `mcp_client.py` |
-| SGU100A | Rohde & Schwarz | SCPI TCP Socket | 5025 | `generator_client.py` |
+| Parámetro | Valor |
+|---|---|
+| Frecuencia inicio | 700 MHz |
+| Frecuencia fin | 900 MHz |
+| Paso de frecuencia | 50 MHz |
+| Potencia inicio | -10 dBm |
+| Potencia fin | -40 dBm |
+| Paso de potencia | -10 dBm |
+| Equipos receptores | hexylon_a |
+| Comandos de medida | `FREQ?`, `POW?` |
+
+**Total de puntos del barrido:** 5 frecuencias × 4 niveles de potencia = 20 puntos.
 
 ---
 
-## Requisitos
+## 5. Sincronización de frecuencia — offset de canal
 
-- Python **3.10.12**
-- Node.js ≥ 18 + npm
-- [Ollama](https://ollama.com/) con modelo `qwen3.5:9b`
-- Acceso de red al Hexylon (MCP en puerto 8814)
-- Acceso de red al R&S SGU100A (SCPI en puerto 5025)
+El plan de canales del Hexylon (TERRA DEFAULT) tiene los canales centrados 2.75 MHz por debajo de la frecuencia nominal. Cuando el generador emite a 900 MHz, el canal que sintoniza el Hexylon está centrado en 897.25 MHz.
+
+Para compensarlo, el sistema aplica automáticamente el offset antes de enviar el comando `FREQ` al Hexylon:
+
+```
+frecuencia_hexylon = frecuencia_generador − 2.75 MHz
+```
+
+El generador recibe siempre la frecuencia nominal exacta. Solo el comando enviado al Hexylon lleva el offset aplicado.
 
 ---
 
-## Instalación
+## 6. Secuencia de ejecución por punto
 
-```bash
-git clone https://github.com/pabloseijo/Hexylon-LLM-Client
-cd Hexylon-LLM-Client
-pip install -r requirements.txt
-cd ui && npm install && cd ..
-```
+Para cada combinación (potencia, frecuencia) el sistema ejecuta en orden:
 
----
-
-## Configuración
-
-### Variables de entorno
-
-| Variable | Por defecto | Descripción |
-|----------|-------------|-------------|
-| `OLLAMA_URL` | `http://10.115.0.71:11434/api/chat` | Servidor Ollama |
-| `OLLAMA_MODEL` | `qwen3.5:9b` | Modelo LLM |
-| `MCP_URL` | `http://10.113.0.148:8814/mcp` | MCP del Hexylon |
-
-### Máquinas (`config/machines.json`)
-
-```json
-{
-  "hexylon_a": { "url": "http://10.113.0.148:8814/mcp", "type": "hexylon" },
-  "hexylon_b": { "url": "http://10.113.0.149:8814/mcp", "type": "hexylon" },
-  "generator":  { "url": "http://10.113.100.10",         "type": "generator" },
-  "default": "hexylon_a"
-}
-```
-
-Para añadir un nuevo equipo basta con añadir una entrada en este fichero.
+1. `POW <x>dBm` → generador (configura nivel de potencia)
+2. `FREQ <f> MHz` → generador (frecuencia nominal)
+3. `FREQ <f − 2.75> MHz` → Hexylon (frecuencia con offset aplicado)
+4. Espera 1 segundo (estabilización del tuner)
+5. `LOCK?` → Hexylon (fuerza actualización interna)
+6. Espera 1 segundo adicional
+7. `FREQ?` → Hexylon (lectura de frecuencia sintonizada)
+8. `POW?` → Hexylon (lectura de potencia recibida)
+9. Escritura de fila en CSV y flush
+10. Evento WebSocket `matrix_sweep_progress` al frontend
 
 ---
 
-## Ejecución
+## 7. Tolerancia a fallos por equipo
 
-### Backend + frontend
+El sistema implementa aislamiento automático de equipos fallidos durante el barrido:
 
-```bash
-./scripts/run.sh
-```
-
-| Servicio | URL |
-|----------|-----|
-| Frontend | http://127.0.0.1:5173 |
-| Backend API | http://127.0.0.1:8001 |
-| Documentación API | http://127.0.0.1:8001/docs |
-
-### Solo backend
-
-```bash
-PYTHONPATH=src uvicorn src.api.server:app --reload --port 8001
-```
-
-### Chat CLI
-
-```bash
-PYTHONPATH=src python3 scripts/chat_pipeline.py
-```
-
-### Tests
-
-```bash
-PYTHONPATH=src pytest
-```
+- Si un equipo devuelve error en cualquier comando, queda añadido al conjunto `disabled_machines`.
+- Los puntos siguientes del barrido omiten ese equipo con el valor `SKIPPED: equipo deshabilitado por error previo`.
+- El resto de equipos continúan midiendo con normalidad.
+- Se emite un evento WebSocket `machine_disabled` con la máquina afectada, la razón, la frecuencia y la potencia en el momento del fallo.
 
 ---
 
-## API REST
+## 8. Resultados del barrido ejecutado
 
-| Método | Ruta | Descripción |
-|--------|------|-------------|
-| `POST` | `/chat` | Envía un mensaje al pipeline |
-| `GET` | `/tasks` | Lista las tareas activas |
-| `DELETE` | `/tasks/{task_id}` | Cancela una tarea |
-| `GET` | `/tasks/history` | Historial persistente |
-| `GET` | `/download?file=...` | Descarga un CSV |
-| `GET` | `/health` | Healthcheck |
-| `WS` | `/ws` | Eventos en tiempo real |
+**Fecha de ejecución:** 2026-05-13 12:19:08
 
-### Eventos WebSocket
+**Resultado:** Barrido completado — 20 puntos adquiridos en hexylon_a.
 
-| Evento | Descripción |
-|--------|-------------|
-| `task_created` | Nueva tarea lanzada |
-| `task_completed` | Tarea finalizada |
-| `task_cancelled` | Tarea cancelada |
-| `task_failed` | Tarea fallida |
-| `task_alert` | Condición de alerta disparada |
+### 8.1 Parámetros del barrido ejecutado
+
+| Parámetro | Valor |
+|---|---|
+| Frecuencias | 700, 750, 800, 850, 900 MHz |
+| Niveles de potencia | -10, -20, -30, -40 dBm |
+| Total de puntos | 20 |
+| Duración | 12:19:08 → 12:21:58 (~3 min) |
+
+### 8.2 Resumen de medidas hexylon_a (POW?)
+
+| Potencia generador (dBm) | Media POW medida (dBµV) |
+|---|---|
+| -10 | 92.46 |
+| -20 | 82.46 |
+| -30 | 72.44 |
+| -40 | 62.48 |
+
+Rango total medido: **62.3 dBµV** a **92.7 dBµV**.
+
+Se observa una correlación lineal perfecta — exactamente 10 dBµV por cada 10 dBm de variación en la potencia del generador, uniforme en todas las frecuencias del barrido. El offset de canal corregido permite medidas consistentes en todo el rango de frecuencias.
+
+### 8.3 Muestra del CSV generado
+
+| timestamp | generator_power_dbm | generator_frequency_mhz | hexylon_a_frequency_set_response | hexylon_a_FREQ? | hexylon_a_POW? |
+|---|---|---|---|---|---|
+| 2026-05-13 12:19:08 | -10.0 | 700.0 | CMD OK | FREQ 700000 kHz | 92.5 dBµV |
+| 2026-05-13 12:19:17 | -10.0 | 750.0 | CMD OK | FREQ 750000 kHz | 92.5 dBµV |
+| 2026-05-13 12:19:26 | -10.0 | 800.0 | CMD OK | FREQ 800000 kHz | 92.7 dBµV |
+| 2026-05-13 12:19:35 | -10.0 | 850.0 | CMD OK | FREQ 850000 kHz | 92.3 dBµV |
+| 2026-05-13 12:19:44 | -10.0 | 900.0 | CMD OK | FREQ 900000 kHz | 92.3 dBµV |
+| 2026-05-13 12:20:37 | -30.0 | 700.0 | CMD OK | FREQ 700000 kHz | 72.2 dBµV |
+| 2026-05-13 12:21:22 | -40.0 | 700.0 | CMD OK | FREQ 700000 kHz | 62.3 dBµV |
+| 2026-05-13 12:21:58 | -40.0 | 900.0 | CMD OK | FREQ 900000 kHz | 62.5 dBµV |
 
 ---
 
-## Rangos del R&S SGU100A
+## 9. Prompt de usuario para graficar los resultados
 
-| Parámetro | Rango | Incremento |
-|-----------|-------|------------|
-| Frecuencia | 10 MHz – 40 GHz | 1 mHz |
-| Potencia | −120 dBm – +25 dBm | 0.01 dBm |
+Una vez completado el barrido, el usuario introduce en el chat:
 
-```scpi
-FREQ 500 MHz          → Configura frecuencia
-POW -10dBm            → Configura potencia
-OUTPut:STATe ON       → Activa salida RF
-SETTings:APPLy        → Aplica configuración
-*IDN?                 → Identificación
+```
+Grafica los resultados del último barrido matricial. Usa el CSV generado.
+Para el hexylon_a, convierte las medidas de POW? de dBµV a dBm restando
+108.75 dB (sistema 75 Ω). Representa en el eje X la frecuencia del generador
+en MHz, en el eje Y la potencia medida en hexylon_a en dBm, y pinta una línea
+por cada nivel de potencia del generador. Cada línea tiene 15 puntos,
+uno por cada frecuencia del barrido.
 ```
 
----
+### Descripción de la gráfica generada
 
-## Estructura del proyecto
+| Elemento | Valor |
+|---|---|
+| Eje X | Frecuencia del generador (MHz) |
+| Eje Y | Potencia medida por hexylon_a (dBm) |
+| Líneas | Una por cada nivel de potencia del generador: -10, -20, -30, -40 dBm (4 líneas) |
+| Puntos por línea | 5 (uno por cada frecuencia del barrido) |
+| Conversión | dBm = dBµV − 108.75 (sistema 75 Ω) |
+| Receptor | hexylon_a |
 
-```
-Hexylon-LLM-Client/
-├── config/
-│   └── machines.json                    # IPs y tipos de equipos
-├── docs/
-│   └── caso_uso_barrido_matricial.md    # Caso de uso documentado
-├── src/
-│   ├── api/
-│   │   ├── server.py                    # FastAPI — REST + WebSocket
-│   │   ├── task_notifier.py             # Puente tareas ↔ WebSocket
-│   │   └── task_presenter.py            # Serialización de tareas
-│   └── llm/
-│       ├── clients/
-│       │   ├── mcp_client.py            # Cliente MCP → Hexylon
-│       │   ├── generator_client.py      # Cliente SCPI TCP → SGU100A
-│       │   └── ollama_client.py         # Cliente HTTP → Ollama
-│       ├── core/
-│       │   ├── pipeline.py              # Orquestador principal
-│       │   ├── scpi_generator.py        # Generación de comandos SCPI
-│       │   └── scpi_normalizer.py       # Validación SCPI
-│       ├── handlers/
-│       │   ├── command_handler.py       # Comandos SCPI directos
-│       │   ├── knowledge_handler.py     # Consultas documentales
-│       │   ├── task_handler.py          # Ciclo de vida de tareas
-│       │   ├── orchestrator_handler.py  # Secuencias y sweeps
-│       │   ├── analysis_handler.py      # Análisis de CSV
-│       │   └── session_handler.py       # Estado de sesión
-│       ├── knowledge/
-│       │   ├── command_catalog.py           # Comandos Hexylon
-│       │   ├── generator_command_catalog.py # Comandos SGU100A
-│       │   ├── topic_catalog.py             # Topics documentales
-│       │   ├── query_classifier.py          # Clasificación de consultas
-│       │   └── context_builder.py           # Contexto dinámico para LLM
-│       ├── memory/
-│       │   ├── session_memory.py        # Estado operativo inmediato
-│       │   ├── task_history.py          # Historial persistente (JSONL)
-│       │   └── conversation_history.py  # Historial conversacional
-│       ├── parsing/
-│       │   └── main_parser.py           # Parser de intención del usuario
-│       └── tasks/
-│           ├── task_planner.py          # LLM → TaskPlan estructurado
-│           ├── task_executor.py         # Ejecución asíncrona de tareas
-│           ├── sweep_executor.py        # Barridos de frecuencia
-│           ├── orchestrator.py          # Orquestador multi-máquina
-│           ├── task_analyzer.py         # Análisis estadístico
-│           └── task_plotter.py          # Generación de gráficos
-├── ui/                                  # Frontend React + Vite
-├── deploy/                              # Paquetes de despliegue en Hexylon
-│   └── hexylon-mcp/
-│       └── guia.md                      # Guía de despliegue del servidor MCP
-├── tmp/
-│   ├── orchestrator.log                 # Log de secuencias con timestamps
-│   └── generator.log                    # Log de comandos al generador
-├── output/                              # CSVs y gráficos generados
-├── scripts/
-│   ├── run.sh                           # Arranca backend + frontend
-│   └── deploy_hexylon.sh                # Despliega MCP en el Hexylon
-├── requirements.txt
-└── pytest.ini
-```
+### Gráfica resultante
 
----
+![Barrido matricial RF - hexylon_a](output/plots/hexylon_a_matrix_sweep_corrected.png)
 
-## Validación de secuencialidad
-
-Los logs en `tmp/` permiten verificar que la ejecución es siempre secuencial:
-
-```log
-[2026-05-08 11:13:59.224] step=1 machine=generator  command='POW -10dBm'        status=STARTED
-[2026-05-08 11:13:59.225] step=1 machine=generator  command='POW -10dBm'        status=OK
-[2026-05-08 11:13:59.233] step=2 machine=hexylon_a  task='task_20260508_111359' status=LAUNCHED
-```
-
-El paso 2 arranca **8 ms** después de que el paso 1 confirma OK.
-
----
-
-## Sistema de memoria
-
-El sistema mantiene contexto conversacional en 4 capas independientes:
-
-| Capa | Módulo | Persistencia | Uso |
-|------|--------|-------------|-----|
-| Conversacional | `conversation_history` | RAM (sesión) | Historial de mensajes para el LLM — máx. 20 turnos |
-| Eventos | `session_log` | RAM (sesión) | Log estructurado de acciones — tareas, comandos, alertas |
-| Estado inmediato | `session_memory` | RAM (sesión) | Última tarea activa, último CSV, última métrica |
-| Persistente | `task_history` | Disco (`~/.hexylon/`) | Historial de tareas entre sesiones |
-
-Esto permite follow-ups como:
-
-- `"y eso qué significa"` — usa `conversation_history`
-- `"qué hemos hecho hasta ahora"` — usa `session_log`
-- `"grafícame la última tarea"` — usa `session_memory.last_output_file`
-- `"qué tareas hemos ejecutado esta semana"` — usa `task_history`
-
----
-
-## Principios de diseño
-
-- **Separación estricta** — MCP sin lógica, LLM solo donde aporta valor, ejecución determinista
-- **Control del LLM** — outputs validados, prompts restrictivos, contexto mínimo necesario
-- **Multi-equipo extensible** — añadir un nuevo equipo es editar `machines.json` y crear un cliente
-- **Observabilidad** — logs con timestamps para validar secuencialidad y depurar errores
-- **Sin bloqueos** — tareas y sweeps ejecutados en background, chat siempre disponible
-
----
-
-<div align="center">
-
-Desarrollado por **Pablo Seijo** · Gsertel · 2026
-
-</div>
+Las 4 líneas son perfectamente paralelas y planas a lo largo de todas las frecuencias, con una separación constante de 10 dBm entre cada nivel de potencia del generador. Esto confirma el correcto funcionamiento del sistema de medida con el offset de canal aplicado.
