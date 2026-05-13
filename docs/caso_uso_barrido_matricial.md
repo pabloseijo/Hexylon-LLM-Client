@@ -49,8 +49,7 @@ Cliente LLM (chat)
 El usuario introduce en el chat el siguiente prompt en lenguaje natural:
 
 ```
-Barrido matricial frecuencia/potencia: 200-900 MHz paso 50 MHz;
--10 a -90 dBm paso -10 dB; equipos hexylon_a, hexylon_b
+Barrido matricial frecuencia/potencia: 700-900 MHz paso 50 MHz; -10 a -40 dBm paso -10 dB; equipos hexylon_a
 ```
 
 El cliente LLM interpreta este prompt y lanza automáticamente un `MatrixSweepExecutor` con los parámetros extraídos:
