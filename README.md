@@ -55,6 +55,14 @@ Usuario  →  LLM Pipeline  →  Orquestador  →  MCP  →  Hexylon (SCPI)
 
 ---
 
+## Casos de uso documentados
+
+| Caso de uso | Descripción |
+|-------------|-------------|
+| [Barrido matricial frecuencia/potencia](docs/caso_uso_barrido_matricial.md) | Barrido 200–900 MHz × −10 a −90 dBm sobre hexylon_a con gráfica automática |
+
+---
+
 ## Arquitectura
 
 ```
@@ -224,6 +232,8 @@ SETTings:APPLy        → Aplica configuración
 Hexylon-LLM-Client/
 ├── config/
 │   └── machines.json                    # IPs y tipos de equipos
+├── docs/
+│   └── caso_uso_barrido_matricial.md    # Caso de uso documentado
 ├── src/
 │   ├── api/
 │   │   ├── server.py                    # FastAPI — REST + WebSocket

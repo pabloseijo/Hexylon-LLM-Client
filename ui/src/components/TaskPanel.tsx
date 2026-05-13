@@ -73,7 +73,10 @@ function TaskCard({ task, onCancelled, progress }: TaskCardProps) {
         <div className="flex flex-col gap-1">
           <div className="flex justify-between text-[9px] text-[var(--color-text-muted)]">
             {isSweepProgress(progress) ? (
-              <span>{progress.current_freq_mhz.toFixed(0)} MHz</span>
+              <span>
+                {progress.current_freq_mhz.toFixed(0)} MHz
+                {progress.current_power_dbm !== undefined && ` · ${progress.current_power_dbm} dBm`}
+              </span>
             ) : (
               <span>{progress.elapsed_seconds.toFixed(0)}s transcurridos</span>
             )}

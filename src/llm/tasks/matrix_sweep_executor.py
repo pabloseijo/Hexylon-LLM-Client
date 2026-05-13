@@ -160,7 +160,8 @@ class MatrixSweepExecutor:
                 machine_id=machine_id,
             )
 
-            time.sleep(0.5)
+            # Aumentado de 0.5 a 1.0 s para dar más margen al equipo
+            time.sleep(1.0)
 
             try:
                 send_scpi_command(
@@ -170,7 +171,8 @@ class MatrixSweepExecutor:
             except Exception:
                 pass
 
-            time.sleep(0.5)
+            # Aumentado de 0.5 a 1.0 s para dar más margen al equipo
+            time.sleep(1.0)
 
             return response.strip()
 
@@ -181,6 +183,9 @@ class MatrixSweepExecutor:
         freqs = self._build_freqs()
         powers = self._build_powers()
         total_steps = max(1, len(freqs) * len(powers))
+
+        # Equipos que han fallado y no deben volver a intentarse
+        disabled_machines: set[str] = set()
 
         output_path = Path(self.matrix_plan.output_file)
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -253,6 +258,16 @@ class MatrixSweepExecutor:
                         for machine_id in self.matrix_plan.machine_ids_hexylon:
                             set_key = f"{machine_id}_frequency_set_response"
 
+                            # Equipo previamente deshabilitado por error: saltar sin reintentar
+                            if machine_id in disabled_machines:
+                                skipped_msg = "SKIPPED: equipo deshabilitado por error previo"
+                                row[set_key] = skipped_msg
+                                for command in self.matrix_plan.commands:
+                                    key = f"{machine_id}_{command}"
+                                    values[key] = skipped_msg
+                                    row[key] = skipped_msg
+                                continue
+
                             frequency_response = self._configure_hexylon_frequency(
                                 machine_id=machine_id,
                                 freq_cmd=freq_cmd,
@@ -261,6 +276,20 @@ class MatrixSweepExecutor:
                             row[set_key] = frequency_response or "OK"
 
                             if frequency_response and frequency_response.startswith("ERROR"):
+                                # Deshabilitar el equipo para el resto del barrido
+                                disabled_machines.add(machine_id)
+
+                                notify_event({
+                                    "type": "machine_disabled",
+                                    "task_id": self.matrix_plan.task_id,
+                                    "data": {
+                                        "machine_id": machine_id,
+                                        "reason": frequency_response,
+                                        "freq_mhz": freq_mhz,
+                                        "power_dbm": power_dbm,
+                                    },
+                                })
+
                                 for command in self.matrix_plan.commands:
                                     key = f"{machine_id}_{command}"
                                     values[key] = frequency_response
@@ -278,6 +307,21 @@ class MatrixSweepExecutor:
                                     values[key] = response.strip()
                                 except Exception as exc:
                                     values[key] = f"ERROR: {exc}"
+
+                                    # Si falla un comando de medida, también deshabilitar
+                                    if machine_id not in disabled_machines:
+                                        disabled_machines.add(machine_id)
+
+                                        notify_event({
+                                            "type": "machine_disabled",
+                                            "task_id": self.matrix_plan.task_id,
+                                            "data": {
+                                                "machine_id": machine_id,
+                                                "reason": f"Error en comando {command}: {exc}",
+                                                "freq_mhz": freq_mhz,
+                                                "power_dbm": power_dbm,
+                                            },
+                                        })
 
                                 row[key] = values[key]
 
@@ -303,6 +347,7 @@ class MatrixSweepExecutor:
                                 "percent": round(
                                     len(measurements) / total_steps * 100
                                 ),
+                                "disabled_machines": list(disabled_machines),
                             },
                         })
 

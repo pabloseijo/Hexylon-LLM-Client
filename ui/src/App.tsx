@@ -37,6 +37,8 @@ export interface SweepProgress {
   current_step: number;
   total_steps: number;
   percent: number;
+  current_power_dbm?: number;        // solo en matrix sweep
+  disabled_machines?: string[];      // solo en matrix sweep
 }
 
 export interface TaskProgress {
@@ -82,7 +84,7 @@ export default function App() {
     const last: WsNotification = notifications[notifications.length - 1];
 
     // Progreso de sweep
-    if (last.type === "sweep_progress" && last.data) {
+    if ((last.type === "sweep_progress" || last.type === "matrix_sweep_progress") && last.data) {
       const p = last.data as unknown as SweepProgress;
       queueMicrotask(() => {
         setTaskProgress((prev) => ({ ...prev, [last.task_id]: p }));
