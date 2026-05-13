@@ -181,6 +181,6 @@ uno por cada frecuencia del barrido.
 
 ### Gráfica resultante
 
-![Barrido matricial RF - hexylon_a](output/plots/hexylon_a_matrix_sweep_corrected.png)
+![Barrido matricial RF - hexylon_a](output/plots/hexylon_a_matrix_sweep_plot.png)
 
 Las 4 líneas son perfectamente paralelas y planas a lo largo de todas las frecuencias, con una separación constante de 10 dBm entre cada nivel de potencia del generador. Esto confirma el correcto funcionamiento del sistema de medida con el offset de canal aplicado.
